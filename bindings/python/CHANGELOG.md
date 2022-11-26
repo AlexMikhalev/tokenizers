@@ -4,6 +4,79 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.2] 
+
+- [#1096] Python 3.11 support
+
+## [0.13.1] 
+
+- [#1072] Fixing Roberta type ids.
+
+## [0.13.0] 
+
+- [#956] PyO3 version upgrade
+- [#1055] M1 automated builds
+- [#1008] `Decoder` is now a composable trait, but without being backward incompatible
+- [#1047, #1051, #1052] `Processor` is now a composable trait, but without being backward incompatible
+
+Both trait changes warrant a "major" number since, despite best efforts to not break backward
+  compatibility, the code is different enough that we cannot be exactly sure.
+
+## [0.12.1] 
+
+- [#938] **Reverted breaking change**. https://github.com/huggingface/transformers/issues/16520
+
+## [0.12.0] YANKED
+
+Bump minor version because of a breaking change.
+
+- [#938] [REVERTED IN 0.12.1] **Breaking change**. Decoder trait is modified to be composable. This is only breaking if you are using decoders on their own. tokenizers should be error free.
+- [#939] Making the regex in `ByteLevel` pre_tokenizer optional (necessary for BigScience)
+
+- [#952] Fixed the vocabulary size of UnigramTrainer output (to respect added tokens)
+- [#954] Fixed not being able to save vocabularies with holes in vocab (ConvBert). Yell warnings instead, but stop panicking.
+- [#962] Fix tests for python 3.10
+- [#961] Added link for Ruby port of `tokenizers`
+
+## [0.11.6]
+
+- [#919] Fixing single_word AddedToken. (regression from 0.11.2)
+- [#916] Deserializing faster `added_tokens` by loading them in batch.
+
+## [0.11.5]
+
+- [#895] Build `python 3.10` wheels.
+
+## [0.11.4]
+
+- [#884] Fixing bad deserialization following inclusion of a default for Punctuation
+
+## [0.11.3]
+
+- [#882] Fixing Punctuation deserialize without argument.
+- [#868] Fixing missing direction in TruncationParams
+- [#860] Adding TruncationSide to TruncationParams
+
+## [0.11.0]
+
+### Fixed
+
+- [#585] Conda version should now work on old CentOS
+- [#844] Fixing interaction between `is_pretokenized` and `trim_offsets`.
+- [#851] Doc links
+
+### Added
+- [#657]: Add SplitDelimiterBehavior customization to Punctuation constructor
+- [#845]: Documentation for `Decoders`.
+
+### Changed
+- [#850]: Added a feature gate to enable disabling `http` features
+- [#718]: Fix `WordLevel` tokenizer determinism during training
+- [#762]: Add a way to specify the unknown token in `SentencePieceUnigramTokenizer`
+- [#770]: Improved documentation for `UnigramTrainer`
+- [#780]: Add `Tokenizer.from_pretrained` to load tokenizers from the Hugging Face Hub
+- [#793]: Saving a pretty JSON file by default when saving a tokenizer
+
 ## [0.10.3]
 
 ### Fixed
@@ -320,12 +393,45 @@ delimiter (Works like `.split(delimiter)`)
 - Fix a bug with the IDs associated with added tokens.
 - Fix a bug that was causing crashes in Python 3.5
 
-
+[#1096]: https://github.com/huggingface/tokenizers/pull/1096
+[#1072]: https://github.com/huggingface/tokenizers/pull/1072
+[#956]: https://github.com/huggingface/tokenizers/pull/956
+[#1008]: https://github.com/huggingface/tokenizers/pull/1008
+[#1009]: https://github.com/huggingface/tokenizers/pull/1009
+[#1047]: https://github.com/huggingface/tokenizers/pull/1047
+[#1055]: https://github.com/huggingface/tokenizers/pull/1055
+[#1051]: https://github.com/huggingface/tokenizers/pull/1051
+[#1052]: https://github.com/huggingface/tokenizers/pull/1052
+[#938]: https://github.com/huggingface/tokenizers/pull/938
+[#939]: https://github.com/huggingface/tokenizers/pull/939
+[#952]: https://github.com/huggingface/tokenizers/pull/952
+[#954]: https://github.com/huggingface/tokenizers/pull/954
+[#962]: https://github.com/huggingface/tokenizers/pull/962
+[#961]: https://github.com/huggingface/tokenizers/pull/961
+[#960]: https://github.com/huggingface/tokenizers/pull/960
+[#919]: https://github.com/huggingface/tokenizers/pull/919
+[#916]: https://github.com/huggingface/tokenizers/pull/916
+[#895]: https://github.com/huggingface/tokenizers/pull/895
+[#884]: https://github.com/huggingface/tokenizers/pull/884
+[#882]: https://github.com/huggingface/tokenizers/pull/882
+[#868]: https://github.com/huggingface/tokenizers/pull/868
+[#860]: https://github.com/huggingface/tokenizers/pull/860
+[#850]: https://github.com/huggingface/tokenizers/pull/850
+[#844]: https://github.com/huggingface/tokenizers/pull/844
+[#845]: https://github.com/huggingface/tokenizers/pull/845
+[#851]: https://github.com/huggingface/tokenizers/pull/851
+[#585]: https://github.com/huggingface/tokenizers/pull/585
+[#793]: https://github.com/huggingface/tokenizers/pull/793
+[#780]: https://github.com/huggingface/tokenizers/pull/780
+[#770]: https://github.com/huggingface/tokenizers/pull/770
+[#762]: https://github.com/huggingface/tokenizers/pull/762
+[#718]: https://github.com/huggingface/tokenizers/pull/718
 [#714]: https://github.com/huggingface/tokenizers/pull/714
 [#707]: https://github.com/huggingface/tokenizers/pull/707
 [#693]: https://github.com/huggingface/tokenizers/pull/693
 [#686]: https://github.com/huggingface/tokenizers/pull/686
 [#674]: https://github.com/huggingface/tokenizers/pull/674
+[#657]: https://github.com/huggingface/tokenizers/pull/657
 [#656]: https://github.com/huggingface/tokenizers/pull/656
 [#652]: https://github.com/huggingface/tokenizers/pull/652
 [#621]: https://github.com/huggingface/tokenizers/pull/621

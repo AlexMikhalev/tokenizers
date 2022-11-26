@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use tk::processors::bert::BertProcessing;
 use tk::processors::byte_level::ByteLevel;
 use tk::processors::roberta::RobertaProcessing;
+use tk::processors::sequence::Sequence;
 use tk::processors::template::{SpecialToken, Template};
 use tk::processors::PostProcessorWrapper;
 use tk::{Encoding, PostProcessor};
@@ -20,7 +21,12 @@ use tokenizers as tk;
 ///
 /// This class is not supposed to be instantiated directly. Instead, any implementation of
 /// a PostProcessor will return an instance of this class when instantiated.
-#[pyclass(dict, module = "tokenizers.processors", name=PostProcessor)]
+#[pyclass(
+    dict,
+    module = "tokenizers.processors",
+    name = "PostProcessor",
+    subclass
+)]
 #[derive(Clone, Deserialize, Serialize)]
 pub struct PyPostProcessor {
     #[serde(flatten)]
@@ -32,10 +38,8 @@ impl PyPostProcessor {
         PyPostProcessor { processor }
     }
 
-    pub(crate) fn get_as_subtype(&self) -> PyResult<PyObject> {
+    pub(crate) fn get_as_subtype(&self, py: Python<'_>) -> PyResult<PyObject> {
         let base = self.clone();
-        let gil = Python::acquire_gil();
-        let py = gil.python();
         Ok(match self.processor.as_ref() {
             PostProcessorWrapper::ByteLevel(_) => Py::new(py, (PyByteLevel {}, base))?.into_py(py),
             PostProcessorWrapper::Bert(_) => Py::new(py, (PyBertProcessing {}, base))?.into_py(py),
@@ -45,6 +49,7 @@ impl PyPostProcessor {
             PostProcessorWrapper::Template(_) => {
                 Py::new(py, (PyTemplateProcessing {}, base))?.into_py(py)
             }
+            PostProcessorWrapper::Sequence(_) => Py::new(py, (PySequence {}, base))?.into_py(py),
         })
     }
 }
@@ -54,14 +59,13 @@ impl PostProcessor for PyPostProcessor {
         self.processor.added_tokens(is_pair)
     }
 
-    fn process(
+    fn process_encodings(
         &self,
-        encoding: Encoding,
-        pair_encoding: Option<Encoding>,
+        encodings: Vec<Encoding>,
         add_special_tokens: bool,
-    ) -> tk::Result<Encoding> {
+    ) -> tk::Result<Vec<Encoding>> {
         self.processor
-            .process(encoding, pair_encoding, add_special_tokens)
+            .process_encodings(encodings, add_special_tokens)
     }
 }
 
@@ -71,7 +75,7 @@ impl PyPostProcessor {
         let data = serde_json::to_string(self.processor.as_ref()).map_err(|e| {
             exceptions::PyException::new_err(format!(
                 "Error while attempting to pickle PostProcessor: {}",
-                e.to_string()
+                e
             ))
         })?;
         Ok(PyBytes::new(py, data.as_bytes()).to_object(py))
@@ -83,7 +87,7 @@ impl PyPostProcessor {
                 self.processor = serde_json::from_slice(s.as_bytes()).map_err(|e| {
                     exceptions::PyException::new_err(format!(
                         "Error while attempting to unpickle PostProcessor: {}",
-                        e.to_string()
+                        e
                     ))
                 })?;
                 Ok(())
@@ -100,7 +104,7 @@ impl PyPostProcessor {
     ///
     /// Returns:
     ///     :obj:`int`: The number of tokens to add
-    #[text_signature = "(self, is_pair)"]
+    #[pyo3(text_signature = "(self, is_pair)")]
     fn num_special_tokens_to_add(&self, is_pair: bool) -> usize {
         self.processor.added_tokens(is_pair)
     }
@@ -120,7 +124,7 @@ impl PyPostProcessor {
     /// Return:
     ///     :class:`~tokenizers.Encoding`: The final encoding
     #[args(pair = "None", add_special_tokens = "true")]
-    #[text_signature = "(self, encoding, pair=None, add_special_tokens=True)"]
+    #[pyo3(text_signature = "(self, encoding, pair=None, add_special_tokens=True)")]
     fn process(
         &self,
         encoding: &PyEncoding,
@@ -149,8 +153,8 @@ impl PyPostProcessor {
 ///
 ///     cls (:obj:`Tuple[str, int]`):
 ///         A tuple with the string representation of the CLS token, and its id
-#[pyclass(extends=PyPostProcessor, module = "tokenizers.processors", name=BertProcessing)]
-#[text_signature = "(self, sep, cls)"]
+#[pyclass(extends=PyPostProcessor, module = "tokenizers.processors", name = "BertProcessing")]
+#[pyo3(text_signature = "(self, sep, cls)")]
 pub struct PyBertProcessing {}
 #[pymethods]
 impl PyBertProcessing {
@@ -163,7 +167,7 @@ impl PyBertProcessing {
     }
 
     fn __getnewargs__<'p>(&self, py: Python<'p>) -> &'p PyTuple {
-        PyTuple::new(py, &[("", 0), ("", 0)])
+        PyTuple::new(py, [("", 0), ("", 0)])
     }
 }
 
@@ -191,8 +195,8 @@ impl PyBertProcessing {
 ///     add_prefix_space (:obj:`bool`, `optional`, defaults to :obj:`True`):
 ///         Whether the add_prefix_space option was enabled during pre-tokenization. This
 ///         is relevant because it defines the way the offsets are trimmed out.
-#[pyclass(extends=PyPostProcessor, module = "tokenizers.processors", name=RobertaProcessing)]
-#[text_signature = "(self, sep, cls, trim_offsets=True, add_prefix_space=True)"]
+#[pyclass(extends=PyPostProcessor, module = "tokenizers.processors", name = "RobertaProcessing")]
+#[pyo3(text_signature = "(self, sep, cls, trim_offsets=True, add_prefix_space=True)")]
 pub struct PyRobertaProcessing {}
 #[pymethods]
 impl PyRobertaProcessing {
@@ -214,7 +218,7 @@ impl PyRobertaProcessing {
     }
 
     fn __getnewargs__<'p>(&self, py: Python<'p>) -> &'p PyTuple {
-        PyTuple::new(py, &[("", 0), ("", 0)])
+        PyTuple::new(py, [("", 0), ("", 0)])
     }
 }
 
@@ -226,8 +230,8 @@ impl PyRobertaProcessing {
 /// Args:
 ///     trim_offsets (:obj:`bool`):
 ///         Whether to trim the whitespaces from the produced offsets.
-#[pyclass(extends=PyPostProcessor, module = "tokenizers.processors", name=ByteLevel)]
-#[text_signature = "(self, trim_offsets=True)"]
+#[pyclass(extends=PyPostProcessor, module = "tokenizers.processors", name = "ByteLevel")]
+#[pyo3(text_signature = "(self, trim_offsets=True)")]
 pub struct PyByteLevel {}
 #[pymethods]
 impl PyByteLevel {
@@ -378,8 +382,8 @@ impl FromPyObject<'_> for PyTemplate {
 ///
 ///          The given dict expects the provided :obj:`ids` and :obj:`tokens` lists to have
 ///          the same length.
-#[pyclass(extends=PyPostProcessor, module = "tokenizers.processors", name=TemplateProcessing)]
-#[text_signature = "(self, single, pair, special_tokens)"]
+#[pyclass(extends=PyPostProcessor, module = "tokenizers.processors", name = "TemplateProcessing")]
+#[pyo3(text_signature = "(self, single, pair, special_tokens)")]
 pub struct PyTemplateProcessing {}
 #[pymethods]
 impl PyTemplateProcessing {
@@ -410,6 +414,49 @@ impl PyTemplateProcessing {
     }
 }
 
+/// Sequence Processor
+///
+/// Args:
+///     processors (:obj:`List[PostProcessor]`)
+///         The processors that need to be chained
+#[pyclass(extends=PyPostProcessor, module = "tokenizers.processors", name = "Sequence")]
+#[pyo3(text_signature = "(self, processors)")]
+pub struct PySequence {}
+#[pymethods]
+impl PySequence {
+    #[new]
+    #[args(processors)]
+    fn new(processors_py: &PyList) -> (Self, PyPostProcessor) {
+        let mut processors: Vec<PostProcessorWrapper> = Vec::with_capacity(processors_py.len());
+        for n in processors_py.iter() {
+            let processor: PyRef<PyPostProcessor> = n.extract().unwrap();
+            let processor = processor.processor.as_ref();
+            processors.push(processor.clone());
+        }
+        let sequence_processor = Sequence::new(processors);
+        (
+            PySequence {},
+            PyPostProcessor::new(Arc::new(PostProcessorWrapper::Sequence(sequence_processor))),
+        )
+    }
+
+    fn __getnewargs__<'p>(&self, py: Python<'p>) -> &'p PyTuple {
+        PyTuple::new(py, [PyList::empty(py)])
+    }
+}
+
+/// Processors Module
+#[pymodule]
+pub fn processors(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_class::<PyPostProcessor>()?;
+    m.add_class::<PyBertProcessing>()?;
+    m.add_class::<PyRobertaProcessing>()?;
+    m.add_class::<PyByteLevel>()?;
+    m.add_class::<PyTemplateProcessing>()?;
+    m.add_class::<PySequence>()?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod test {
     use std::sync::Arc;
@@ -422,15 +469,16 @@ mod test {
 
     #[test]
     fn get_subtype() {
-        let py_proc = PyPostProcessor::new(Arc::new(
-            BertProcessing::new(("SEP".into(), 0), ("CLS".into(), 1)).into(),
-        ));
-        let py_bert = py_proc.get_as_subtype().unwrap();
-        let gil = Python::acquire_gil();
-        assert_eq!(
-            "tokenizers.processors.BertProcessing",
-            py_bert.as_ref(gil.python()).get_type().name()
-        );
+        Python::with_gil(|py| {
+            let py_proc = PyPostProcessor::new(Arc::new(
+                BertProcessing::new(("SEP".into(), 0), ("CLS".into(), 1)).into(),
+            ));
+            let py_bert = py_proc.get_as_subtype(py).unwrap();
+            assert_eq!(
+                "BertProcessing",
+                py_bert.as_ref(py).get_type().name().unwrap()
+            );
+        })
     }
 
     #[test]

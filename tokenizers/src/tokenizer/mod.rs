@@ -11,7 +11,6 @@
 
 use std::{
     collections::HashMap,
-    fmt,
     fs::{read_to_string, File},
     io::prelude::*,
     io::BufReader,
@@ -42,7 +41,9 @@ pub use crate::processors::PostProcessorWrapper;
 // And some other types
 pub use crate::utils::iter::LinesWithEnding;
 pub use crate::utils::padding::{pad_encodings, PaddingDirection, PaddingParams, PaddingStrategy};
-pub use crate::utils::truncation::{truncate_encodings, TruncationParams, TruncationStrategy};
+pub use crate::utils::truncation::{
+    truncate_encodings, TruncationDirection, TruncationParams, TruncationStrategy,
+};
 pub use added_vocabulary::*;
 pub use encoding::*;
 pub use normalizer::{NormalizedString, OffsetReferential, SplitDelimiterBehavior};
@@ -98,29 +99,64 @@ pub trait PostProcessor {
         encoding: Encoding,
         pair_encoding: Option<Encoding>,
         add_special_tokens: bool,
-    ) -> Result<Encoding>;
+    ) -> Result<Encoding> {
+        let mut encodings = if let Some(pair_encoding) = pair_encoding {
+            vec![encoding, pair_encoding]
+        } else {
+            vec![encoding]
+        };
+        encodings.iter_mut().enumerate().for_each(|(i, encoding)| {
+            encoding.set_sequence_id(i);
+            encoding
+                .get_overflowing_mut()
+                .iter_mut()
+                .for_each(|encoding| encoding.set_sequence_id(i));
+            encoding.set_type_ids(vec![i as u32; encoding.len()]);
+        });
+
+        let encodings = self.process_encodings(encodings, add_special_tokens)?;
+        Ok(Encoding::merge(encodings, false))
+    }
+
+    /// Process any amount of encodings and returns a series of encoding (might merge them)
+    fn process_encodings(
+        &self,
+        encodings: Vec<Encoding>,
+        add_special_tokens: bool,
+    ) -> Result<Vec<Encoding>>;
 }
 impl dyn PostProcessor {
     pub fn default_process(
-        mut encoding: Encoding,
-        pair_encoding: Option<Encoding>,
+        encodings: Vec<Encoding>,
         _add_special_tokens: bool,
-    ) -> Result<Encoding> {
-        match pair_encoding {
-            None => Ok(encoding),
-            Some(mut pair) => {
-                encoding.set_sequence_id(0);
-                pair.set_sequence_id(1);
-                encoding.merge_with(pair, false);
-                Ok(encoding)
+    ) -> Result<Vec<Encoding>> {
+        match encodings.len() {
+            1 => Ok(encodings),
+            _ => {
+                let mut final_encoding = Encoding::default();
+                for (i, mut encoding) in encodings.into_iter().enumerate() {
+                    encoding.set_sequence_id(i);
+                    final_encoding.merge_with(encoding, false);
+                }
+                Ok(vec![final_encoding])
             }
         }
     }
 }
 
-/// A `Decoder` has the responsibility to merge the given `Vec<String>` in a `String`.
+#[derive(thiserror::Error, Debug)]
+pub enum ProcessorError {
+    #[error("encodings vector length must be either 1 or 2")]
+    InvalidEncodingsVecLength,
+}
+
+/// A `Decoder` changes the raw tokens into its more readable form.
 pub trait Decoder {
-    fn decode(&self, tokens: Vec<String>) -> Result<String>;
+    fn decode(&self, tokens: Vec<String>) -> Result<String> {
+        let results = self.decode_chain(tokens)?;
+        Ok(results.join(""))
+    }
+    fn decode_chain(&self, tokens: Vec<String>) -> Result<Vec<String>>;
 }
 
 /// A `Trainer` has the responsibility to train a model. We feed it with lines/sentences
@@ -141,7 +177,7 @@ pub trait Trainer {
         F: Fn(&str) -> Result<Vec<String>> + Sync;
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Token {
     pub id: u32,
     pub value: String,
@@ -149,7 +185,7 @@ pub struct Token {
 }
 impl Token {
     pub fn new(id: u32, value: String, offsets: (usize, usize)) -> Self {
-        Token { id, value, offsets }
+        Self { id, value, offsets }
     }
 }
 
@@ -164,55 +200,55 @@ pub enum InputSequence<'s> {
 
 impl<'s> From<Cow<'s, str>> for InputSequence<'s> {
     fn from(input: Cow<'s, str>) -> Self {
-        InputSequence::Raw(input)
+        Self::Raw(input)
     }
 }
 
 impl<'s> From<&'s str> for InputSequence<'s> {
     fn from(input: &'s str) -> Self {
-        InputSequence::Raw(Cow::Borrowed(input))
+        Self::Raw(Cow::Borrowed(input))
     }
 }
 
 impl From<String> for InputSequence<'_> {
     fn from(input: String) -> Self {
-        InputSequence::Raw(Cow::Owned(input))
+        Self::Raw(Cow::Owned(input))
     }
 }
 
 impl<'s> From<&'s [&'s str]> for InputSequence<'s> {
     fn from(input: &'s [&'s str]) -> Self {
-        InputSequence::PreTokenized(Cow::Borrowed(input))
+        Self::PreTokenized(Cow::Borrowed(input))
     }
 }
 
 impl<'s> From<Vec<&'s str>> for InputSequence<'s> {
     fn from(input: Vec<&'s str>) -> Self {
-        InputSequence::PreTokenized(Cow::Owned(input))
+        Self::PreTokenized(Cow::Owned(input))
     }
 }
 
 impl<'s> From<&'s [String]> for InputSequence<'s> {
     fn from(input: &'s [String]) -> Self {
-        InputSequence::PreTokenizedOwned(Cow::Borrowed(input))
+        Self::PreTokenizedOwned(Cow::Borrowed(input))
     }
 }
 
 impl<'s> From<Vec<String>> for InputSequence<'s> {
     fn from(input: Vec<String>) -> Self {
-        InputSequence::PreTokenizedOwned(Cow::Owned(input))
+        Self::PreTokenizedOwned(Cow::Owned(input))
     }
 }
 
 impl<'s> From<Vec<Cow<'s, str>>> for InputSequence<'s> {
     fn from(input: Vec<Cow<'s, str>>) -> Self {
-        InputSequence::PreTokenizedCow(Cow::Owned(input))
+        Self::PreTokenizedCow(Cow::Owned(input))
     }
 }
 
 impl<'s> From<&'s [Cow<'s, str>]> for InputSequence<'s> {
     fn from(input: &'s [Cow<'s, str>]) -> Self {
-        InputSequence::PreTokenizedCow(Cow::Borrowed(input))
+        Self::PreTokenizedCow(Cow::Borrowed(input))
     }
 }
 
@@ -224,7 +260,7 @@ pub enum EncodeInput<'s> {
 
 impl<'s, I: Into<InputSequence<'s>>> From<I> for EncodeInput<'s> {
     fn from(input: I) -> Self {
-        EncodeInput::Single(input.into())
+        Self::Single(input.into())
     }
 }
 
@@ -234,20 +270,13 @@ where
     I2: Into<InputSequence<'s>>,
 {
     fn from(input: (I1, I2)) -> Self {
-        EncodeInput::Dual(input.0.into(), input.1.into())
+        Self::Dual(input.0.into(), input.1.into())
     }
 }
 
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug)]
+#[error("{0}")]
 pub struct BuilderError(String);
-
-impl std::error::Error for BuilderError {}
-
-impl fmt::Display for BuilderError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
 
 /// Builder for Tokenizer structs.
 ///
@@ -288,7 +317,7 @@ where
 {
     /// Get an empty TokenizerBuilder.
     pub fn new() -> Self {
-        TokenizerBuilder {
+        Self {
             model: None,
             normalizer: None,
             pre_tokenizer: None,
@@ -321,42 +350,49 @@ where
     }
 
     /// Set the model.
+    #[must_use]
     pub fn with_model(mut self, model: M) -> Self {
         self.model = Some(model);
         self
     }
 
     /// Set the normalizer.
+    #[must_use]
     pub fn with_normalizer(mut self, normalizer: Option<N>) -> Self {
         self.normalizer = normalizer;
         self
     }
 
     /// Set the pre-tokenizer.
+    #[must_use]
     pub fn with_pre_tokenizer(mut self, pretokenizer: Option<PT>) -> Self {
         self.pre_tokenizer = pretokenizer;
         self
     }
 
     /// Set the post-processor.
+    #[must_use]
     pub fn with_post_processor(mut self, post_processor: Option<PP>) -> Self {
         self.post_processor = post_processor;
         self
     }
 
     /// Set the decoder.
+    #[must_use]
     pub fn with_decoder(mut self, decoder: Option<D>) -> Self {
         self.decoder = decoder;
         self
     }
 
     /// Set the trunaction parameters.
+    #[must_use]
     pub fn with_truncation(mut self, trunc: Option<TruncationParams>) -> Self {
         self.truncation = trunc;
         self
     }
 
     /// Set the padding parameters.
+    #[must_use]
     pub fn with_padding(mut self, padding: Option<PaddingParams>) -> Self {
         self.padding = padding;
         self
@@ -394,7 +430,20 @@ impl Tokenizer {
     }
     pub fn from_file<P: AsRef<Path>>(file: P) -> Result<Self> {
         let content = read_to_string(file)?;
-        Ok(serde_json::from_str(&content)?)
+        let tokenizer = serde_json::from_str(&content)?;
+        Ok(tokenizer)
+    }
+    pub fn from_bytes<P: AsRef<[u8]>>(bytes: P) -> Result<Self> {
+        let tokenizer = serde_json::from_slice(bytes.as_ref())?;
+        Ok(tokenizer)
+    }
+    #[cfg(feature = "http")]
+    pub fn from_pretrained<S: AsRef<str>>(
+        identifier: S,
+        params: Option<crate::utils::from_pretrained::FromPretrainedParameters>,
+    ) -> Result<Self> {
+        let tokenizer_file = crate::utils::from_pretrained::from_pretrained(identifier, params)?;
+        Tokenizer::from_file(tokenizer_file)
     }
 }
 
@@ -476,7 +525,7 @@ where
 {
     /// Instantiate a new Tokenizer, with the given Model
     pub fn new(model: M) -> Self {
-        TokenizerImpl {
+        Self {
             normalizer: None,
             pre_tokenizer: None,
             model,
@@ -866,7 +915,7 @@ where
                     };
                     truncate_encodings(encoding, pair_encoding, &params)?
                 } else {
-                    truncate_encodings(encoding, pair_encoding, &trunc)?
+                    truncate_encodings(encoding, pair_encoding, trunc)?
                 }
             } else {
                 (encoding, pair_encoding)
@@ -877,7 +926,17 @@ where
         let final_encoding = if let Some(processor) = &self.post_processor {
             processor.process(encoding, pair_encoding, add_special_tokens)?
         } else {
-            <dyn PostProcessor>::default_process(encoding, pair_encoding, add_special_tokens)?
+            let encodings = if let Some(pair_encoding) = pair_encoding {
+                vec![encoding, pair_encoding]
+            } else {
+                vec![encoding]
+            };
+            let mut encodings =
+                <dyn PostProcessor>::default_process(encodings, add_special_tokens)?;
+            if encodings.len() != 1 {
+                panic!("We haven't reduced the encodings like we should have");
+            }
+            encodings.pop().unwrap()
         };
 
         // 3. Then we pad if needed
@@ -917,7 +976,7 @@ where
 
         if let Some(params) = &self.padding {
             // We do the padding here to make sure we handle the batch padding
-            pad_encodings(&mut encodings, &params)?;
+            pad_encodings(&mut encodings, params)?;
         }
 
         Ok(encodings)
@@ -940,7 +999,7 @@ where
 
         if let Some(params) = &self.padding {
             // We do the padding here to make sure we handle the batch padding
-            pad_encodings(&mut encodings, &params)?;
+            pad_encodings(&mut encodings, params)?;
         }
 
         Ok(encodings)
@@ -1114,7 +1173,43 @@ where
     /// Instantiate a new Tokenizer from the given file
     pub fn from_file<P: AsRef<Path>>(file: P) -> Result<Self> {
         let content = read_to_string(file)?;
-        Ok(serde_json::from_str(&content)?)
+        let tokenizer = serde_json::from_str(&content)?;
+        Ok(tokenizer)
+    }
+}
+
+impl<M, N, PT, PP, D> TokenizerImpl<M, N, PT, PP, D>
+where
+    M: DeserializeOwned + Model,
+    N: DeserializeOwned + Normalizer,
+    PT: DeserializeOwned + PreTokenizer,
+    PP: DeserializeOwned + PostProcessor,
+    D: DeserializeOwned + Decoder,
+{
+    /// Instantiate a new Tokenizer from bytes
+    pub fn from_bytes<P: AsRef<[u8]>>(bytes: P) -> Result<Self> {
+        let tokenizer = serde_json::from_slice(bytes.as_ref())?;
+        Ok(tokenizer)
+    }
+}
+
+impl<M, N, PT, PP, D> TokenizerImpl<M, N, PT, PP, D>
+where
+    M: DeserializeOwned + Model,
+    N: DeserializeOwned + Normalizer,
+    PT: DeserializeOwned + PreTokenizer,
+    PP: DeserializeOwned + PostProcessor,
+    D: DeserializeOwned + Decoder,
+{
+    #[cfg(feature = "http")]
+    /// Instantiate a new Tokenizer from a file hosted on the Hugging Face Hub.
+    /// It expects the `identifier` of a model that includes a `tokenizer.json` file.
+    pub fn from_pretrained<S: AsRef<str>>(
+        identifier: S,
+        params: Option<crate::utils::from_pretrained::FromPretrainedParameters>,
+    ) -> Result<Self> {
+        let tokenizer_file = crate::utils::from_pretrained::from_pretrained(identifier, params)?;
+        TokenizerImpl::from_file(tokenizer_file)
     }
 }
 
@@ -1140,7 +1235,7 @@ where
         let serialized = self.to_string(pretty)?;
 
         let mut file = File::create(path)?;
-        file.write_all(&serialized.as_bytes())?;
+        file.write_all(serialized.as_bytes())?;
 
         Ok(())
     }

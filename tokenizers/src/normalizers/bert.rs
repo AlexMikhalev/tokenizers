@@ -6,23 +6,21 @@ use unicode_categories::UnicodeCategories;
 /// Checks whether a character is whitespace
 fn is_whitespace(c: char) -> bool {
     // These are technically control characters but we count them as whitespace
-    if c == '\t' || c == '\n' || c == '\r' {
-        true
-    } else {
-        c.is_whitespace()
+    match c {
+        '\t' | '\n' | '\r' => true,
+        _ => c.is_whitespace(),
     }
 }
 
 /// Checks whether a character is a control character
 fn is_control(c: char) -> bool {
     // These are technically control characters but we count them as whitespace
-    if c == '\t' || c == '\n' || c == '\r' {
-        false
-    } else {
+    match c {
+        '\t' | '\n' | '\r' => false,
         // The definition of `is_control` here is quite large and contains also
         // Cc, Cf, Cn or Co
         // cf. https://unicode.org/reports/tr44/ (Table 12)
-        c.is_other()
+        _ => c.is_other(),
     }
 }
 
@@ -83,7 +81,7 @@ impl BertNormalizer {
         strip_accents: Option<bool>,
         lowercase: bool,
     ) -> Self {
-        BertNormalizer {
+        Self {
             clean_text,
             handle_chinese_chars,
             strip_accents,
@@ -101,7 +99,7 @@ impl BertNormalizer {
         let mut new_chars: Vec<(char, isize)> = vec![];
         normalized.for_each(|c| {
             if is_chinese_char(c) {
-                new_chars.extend(&[(' ', 0), (c, 1), (' ', 1)]);
+                new_chars.extend([(' ', 0), (c, 1), (' ', 1)]);
             } else {
                 new_chars.push((c, 0));
             }

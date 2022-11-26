@@ -3,7 +3,7 @@ name: Python
 on:
   push:
     branches:
-      - master
+      - main
     paths-ignore:
       - bindings/node/**
   pull_request:
@@ -16,7 +16,7 @@ jobs:
     runs-on: windows-latest
     strategy:
       matrix:
-        python: [3.6, 3.7, 3.8, 3.9]
+        python: ["3.7", "3.8", "3.9", "3.10"]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v1
@@ -34,7 +34,7 @@ jobs:
 
 
       - name: Install Python
-        uses: actions/setup-python@v1
+        uses: actions/setup-python@v2
         with:
           python-version: ${{ matrix.python }}
           architecture: x86
@@ -45,6 +45,7 @@ jobs:
           command: build
           args: --manifest-path ./bindings/python/Cargo.toml
 
+
   build_and_test:
     name: Check everything builds & tests
     runs-on: ${{ matrix.os }}
@@ -54,6 +55,7 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v1
+        
 
       - name: Install Rust
         uses: actions-rs/toolchain@v1
@@ -61,14 +63,18 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
 
-          # # Necessary for now for the cargo cache: https://github.com/actions/cache/issues/133#issuecomment-599102035
-          # - run: sudo chown -R $(whoami):$(id -ng) ~/.cargo/
+      - name: Install Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.9
+          architecture: "x64"
 
-          # - name: Cache Cargo Registry
-          #   uses: actions/cache@v1
-          #   with:
-          #     path: ~/.cargo/registry
-          #     key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache Cargo Registry
+        uses: actions/cache@v1
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
           # - name: Cache Cargo Build Target
           #   uses: actions/cache@v1
@@ -89,25 +95,27 @@ jobs:
           command: clippy
           args: --manifest-path ./bindings/python/Cargo.toml --all-targets --all-features -- -D warnings
 
-      - name: Install Python
-        uses: actions/setup-python@v1
+      - name: Run Audit
+        uses: actions-rs/cargo@v1
         with:
-          python-version: 3.6
-          architecture: "x64"
+          command: audit
+          # ignoring specific CVE which probably isn't affecting this crate
+          # https://github.com/chronotope/chrono/issues/602
+          args: -D warnings -f ./bindings/python/Cargo.lock --ignore RUSTSEC-2020-0071
 
       - name: Install
         working-directory: ./bindings/python
         run: |
           python -m venv .env
           source .env/bin/activate
-          pip install pytest requests setuptools_rust numpy "pyarrow<3.0.0" datasets
-          python setup.py develop
+          pip install -U pip
+          pip install pytest requests setuptools_rust numpy pyarrow datasets
+          pip install -e .[dev]
 
       - name: Check style
         working-directory: ./bindings/python
         run: |
           source .env/bin/activate
-          pip install black==20.8b1
           make check-style
 
       - name: Run tests

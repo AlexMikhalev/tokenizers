@@ -1,20 +1,21 @@
-import pytest
-import pickle
 import json
+import pickle
+
+import pytest
 
 from tokenizers.pre_tokenizers import (
-    PreTokenizer,
-    ByteLevel,
-    Whitespace,
-    WhitespaceSplit,
     BertPreTokenizer,
-    Metaspace,
+    ByteLevel,
     CharDelimiterSplit,
+    Digits,
+    Metaspace,
+    PreTokenizer,
     Punctuation,
     Sequence,
-    Digits,
-    UnicodeScripts,
     Split,
+    UnicodeScripts,
+    Whitespace,
+    WhitespaceSplit,
 )
 
 
@@ -132,6 +133,7 @@ class TestCharDelimiterSplit:
 class TestPunctuation:
     def test_instantiate(self):
         assert Punctuation() is not None
+        assert Punctuation("removed") is not None
         assert isinstance(Punctuation(), PreTokenizer)
         assert isinstance(Punctuation(), Punctuation)
         assert isinstance(pickle.loads(pickle.dumps(Punctuation())), Punctuation)
@@ -212,7 +214,7 @@ class TestCustomPreTokenizer:
 
         assert isinstance(bad, PreTokenizer)
         assert isinstance(good, PreTokenizer)
-        with pytest.raises(Exception, match="TypeError: pre_tokenize()"):
+        with pytest.raises(Exception, match="TypeError:.*pre_tokenize()"):
             bad.pre_tokenize_str("Hey there!")
         assert good.pre_tokenize_str("Hey there!") == [
             ("Hey there!", (0, 10)),

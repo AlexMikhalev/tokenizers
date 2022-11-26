@@ -3,6 +3,7 @@ use crate::tokenizer::{AddedToken, Result, Trainer};
 use crate::utils::parallelism::*;
 use crate::utils::progress::{ProgressBar, ProgressStyle};
 use log::debug;
+use serde::{Deserialize, Serialize};
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
@@ -38,7 +39,7 @@ fn to_log_prob(pieces: &mut [SentencePiece]) {
 
 /// A `UnigramTrainer` can train a `Unigram` model from `word_counts`.
 #[non_exhaustive]
-#[derive(Builder, Debug, Clone)]
+#[derive(Builder, Debug, Clone, Serialize, Deserialize)]
 pub struct UnigramTrainer {
     #[builder(default = "true")]
     pub show_progress: bool,
@@ -125,19 +126,7 @@ impl UnigramTrainer {
                 min_score_penalty += min_score_penalty_delta;
             }
         }
-        for (token, score) in model.iter() {
-            if inserted.contains::<str>(token) {
-                continue;
-            }
-            inserted.insert(token.to_string());
-            pieces.push((token.to_string(), if score.is_nan() { 0.0 } else { *score }));
-            if pieces.len() == self.vocab_size as usize {
-                break;
-            }
-        }
-        pieces.sort_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap());
 
-        // Insert the necessary tokens
         let (unk_id, need_add_unk) = if let Some(ref unk) = self.unk_token {
             let unk_id = self.special_tokens.iter().enumerate().find_map(|(i, t)| {
                 if t.content == *unk {
@@ -153,6 +142,26 @@ impl UnigramTrainer {
         } else {
             (None, false)
         };
+
+        let vocab_size_without_special_tokens = if need_add_unk {
+            self.vocab_size as usize - self.special_tokens.len() - 1
+        } else {
+            self.vocab_size as usize - self.special_tokens.len()
+        };
+        for (token, score) in model.iter() {
+            if inserted.contains::<str>(token) {
+                continue;
+            }
+            inserted.insert(token.to_string());
+            pieces.push((token.to_string(), if score.is_nan() { 0.0 } else { *score }));
+
+            if pieces.len() == vocab_size_without_special_tokens {
+                break;
+            }
+        }
+        pieces.sort_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap());
+
+        // Insert the necessary tokens
         let mut special_tokens = self
             .special_tokens
             .iter()
@@ -189,7 +198,7 @@ impl UnigramTrainer {
         let c_sentence_boundary = '\0';
         let k_sentence_boundary = '\0'.to_string();
         for (string, n) in sentences {
-            flat_string.push_str(&string);
+            flat_string.push_str(string);
             // XXX
             // Comment suggests we add sentence boundary, but it seems to be missing from actual
             // code in spm.
@@ -200,7 +209,10 @@ impl UnigramTrainer {
                 }
             }
         }
+        #[cfg(feature = "esaxx_fast")]
         let suffix = esaxx_rs::suffix(&flat_string).unwrap();
+        #[cfg(not(feature = "esaxx_fast"))]
+        let suffix = esaxx_rs::suffix_rs(&flat_string).unwrap();
 
         //  Basic chars need to be in sentence pieces.
         let mut seed_sentencepieces: Vec<SentencePiece> = vec![];
@@ -613,7 +625,7 @@ mod tests {
         let strings: Vec<_> = table.iter().map(|(string, _)| string).collect();
         assert_eq!(strings, target_strings);
 
-        let scores: Vec<_> = table.iter().map(|(_, score)| score).collect();
+        let scores = table.iter().map(|(_, score)| score);
         let target_scores = vec![
             -2.5649493574615367, // 2.0
             -2.5649493574615367, // 2.0
@@ -632,7 +644,7 @@ mod tests {
             -1.8718021769015916, // 4.0
         ];
 
-        for (score, target_score) in scores.into_iter().zip(target_scores) {
+        for (score, target_score) in scores.zip(target_scores) {
             assert_approx_eq!(*score, target_score, 0.01);
         }
     }

@@ -1,7 +1,10 @@
 import multiprocessing as mp
 import os
-import requests
+
 import pytest
+
+import requests
+
 
 DATA_PATH = os.path.join("tests", "data")
 
@@ -29,33 +32,23 @@ def data_dir():
 @pytest.fixture(scope="session")
 def roberta_files(data_dir):
     return {
-        "vocab": download(
-            "https://s3.amazonaws.com/models.huggingface.co/bert/roberta-base-vocab.json"
-        ),
-        "merges": download(
-            "https://s3.amazonaws.com/models.huggingface.co/bert/roberta-base-merges.txt"
-        ),
+        "vocab": download("https://s3.amazonaws.com/models.huggingface.co/bert/roberta-base-vocab.json"),
+        "merges": download("https://s3.amazonaws.com/models.huggingface.co/bert/roberta-base-merges.txt"),
     }
 
 
 @pytest.fixture(scope="session")
 def bert_files(data_dir):
     return {
-        "vocab": download(
-            "https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased-vocab.txt"
-        ),
+        "vocab": download("https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased-vocab.txt"),
     }
 
 
 @pytest.fixture(scope="session")
 def openai_files(data_dir):
     return {
-        "vocab": download(
-            "https://s3.amazonaws.com/models.huggingface.co/bert/openai-gpt-vocab.json"
-        ),
-        "merges": download(
-            "https://s3.amazonaws.com/models.huggingface.co/bert/openai-gpt-merges.txt"
-        ),
+        "vocab": download("https://s3.amazonaws.com/models.huggingface.co/bert/openai-gpt-vocab.json"),
+        "merges": download("https://s3.amazonaws.com/models.huggingface.co/bert/openai-gpt-merges.txt"),
     }
 
 
@@ -77,9 +70,7 @@ def train_files(data_dir):
 
 @pytest.fixture(scope="session")
 def albert_base(data_dir):
-    return download(
-        "https://s3.amazonaws.com/models.huggingface.co/bert/albert-base-v1-tokenizer.json"
-    )
+    return download("https://s3.amazonaws.com/models.huggingface.co/bert/albert-base-v1-tokenizer.json")
 
 
 @pytest.fixture(scope="session")
@@ -96,6 +87,10 @@ def doc_pipeline_bert_tokenizer(data_dir):
         "https://s3.amazonaws.com/models.huggingface.co/bert/anthony/doc-pipeline/tokenizer.json",
         "bert-wiki.json",
     )
+
+
+# On MacOS Python 3.8+ the default was modified to `spawn`, we need `fork` in tests.
+mp.set_start_method("fork")
 
 
 def multiprocessing_with_parallelism(tokenizer, enabled: bool):

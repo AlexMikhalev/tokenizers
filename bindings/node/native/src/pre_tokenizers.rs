@@ -31,7 +31,7 @@ impl FromJsValue for JsSplitDelimiterBehavior {
     }
 }
 
-impl<'s> From<JsSplitDelimiterBehavior> for SplitDelimiterBehavior {
+impl From<JsSplitDelimiterBehavior> for SplitDelimiterBehavior {
     fn from(v: JsSplitDelimiterBehavior) -> Self {
         v.0
     }
@@ -125,11 +125,14 @@ declare_types! {
     }
 }
 
-/// byte_level(addPrefixSpace: bool = true)
+/// byte_level(addPrefixSpace: bool = true, useRegex: bool = true)
 fn byte_level(mut cx: FunctionContext) -> JsResult<JsPreTokenizer> {
     let mut byte_level = tk::pre_tokenizers::byte_level::ByteLevel::default();
     if let Some(add_prefix_space) = cx.extract_opt::<bool>(0)? {
         byte_level = byte_level.add_prefix_space(add_prefix_space);
+    }
+    if let Some(use_regex) = cx.extract_opt::<bool>(1)? {
+        byte_level = byte_level.use_regex(use_regex);
     }
 
     let mut pretok = JsPreTokenizer::new::<_, JsPreTokenizer, _>(&mut cx, vec![])?;
@@ -203,9 +206,15 @@ fn split(mut cx: FunctionContext) -> JsResult<JsPreTokenizer> {
 
 /// punctuation()
 fn punctuation(mut cx: FunctionContext) -> JsResult<JsPreTokenizer> {
+    let behavior: JsSplitDelimiterBehavior = cx
+        .extract_opt::<JsSplitDelimiterBehavior>(0)?
+        .unwrap_or(JsSplitDelimiterBehavior(SplitDelimiterBehavior::Isolated));
+
     let mut pretok = JsPreTokenizer::new::<_, JsPreTokenizer, _>(&mut cx, vec![])?;
     let guard = cx.lock();
-    pretok.borrow_mut(&guard).pretok = Some(tk::pre_tokenizers::punctuation::Punctuation.into());
+    pretok.borrow_mut(&guard).pretok =
+        Some(tk::pre_tokenizers::punctuation::Punctuation::new(behavior.into()).into());
+
     Ok(pretok)
 }
 
@@ -218,7 +227,7 @@ fn sequence(mut cx: FunctionContext) -> JsResult<JsPreTokenizer> {
         match pretokenizer.downcast::<JsPreTokenizer>().or_throw(&mut cx) {
             Ok(pretokenizer) => {
                 let guard = cx.lock();
-                let pretok = (*pretokenizer.borrow(&guard)).pretok.clone();
+                let pretok = pretokenizer.borrow(&guard).pretok.clone();
                 if let Some(pretokenizer) = pretok {
                     match pretokenizer {
                         JsPreTokenizerWrapper::Sequence(seq) => sequence.extend(seq),

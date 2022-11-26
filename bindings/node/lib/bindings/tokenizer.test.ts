@@ -3,7 +3,7 @@
 
 import { promisify } from "util";
 
-import { PaddingDirection, TruncationStrategy } from "./enums";
+import { PaddingDirection, TruncationDirection, TruncationStrategy } from "./enums";
 import { BPE } from "./models";
 import { RawEncoding } from "./raw-encoding";
 import {
@@ -64,6 +64,7 @@ describe("Tokenizer", () => {
 
     expect(typeof Tokenizer.fromFile).toBe("function");
     expect(typeof Tokenizer.fromString).toBe("function");
+    expect(typeof Tokenizer.fromPretrained).toBe("function");
 
     expect(typeof tokenizer.addSpecialTokens).toBe("function");
     expect(typeof tokenizer.addTokens).toBe("function");
@@ -92,6 +93,33 @@ describe("Tokenizer", () => {
     expect(typeof tokenizer.tokenToId).toBe("function");
     expect(typeof tokenizer.toString).toBe("function");
     expect(typeof tokenizer.train).toBe("function");
+  });
+
+  it("can be instantiated from the hub", async () => {
+    let tokenizer: Tokenizer;
+    let encode: (
+      sequence: InputSequence,
+      pair?: InputSequence | null,
+      options?: EncodeOptions | null
+    ) => Promise<RawEncoding>;
+    let output: RawEncoding;
+
+    tokenizer = Tokenizer.fromPretrained("bert-base-cased");
+    encode = promisify(tokenizer.encode.bind(tokenizer));
+    output = await encode("Hey there dear friend!", null, { addSpecialTokens: false });
+    expect(output.getTokens()).toEqual(["Hey", "there", "dear", "friend", "!"]);
+
+    tokenizer = Tokenizer.fromPretrained("anthony/tokenizers-test");
+    encode = promisify(tokenizer.encode.bind(tokenizer));
+    output = await encode("Hey there dear friend!", null, { addSpecialTokens: false });
+    expect(output.getTokens()).toEqual(["hey", "there", "dear", "friend", "!"]);
+
+    tokenizer = Tokenizer.fromPretrained("anthony/tokenizers-test", {
+      revision: "gpt-2",
+    });
+    encode = promisify(tokenizer.encode.bind(tokenizer));
+    output = await encode("Hey there dear friend!", null, { addSpecialTokens: false });
+    expect(output.getTokens()).toEqual(["Hey", "Ġthere", "Ġdear", "Ġfriend", "!"]);
   });
 
   describe("addTokens", () => {
@@ -348,6 +376,7 @@ describe("Tokenizer", () => {
         maxLength: 2,
         strategy: TruncationStrategy.LongestFirst,
         stride: 0,
+        direction: TruncationDirection.Right,
       };
       expect(truncation).toEqual(expectedConfig);
     });

@@ -1,19 +1,16 @@
-import numpy as np
 import pickle
-import pytest
-from ..utils import (
-    data_dir,
-    roberta_files,
-    bert_files,
-    multiprocessing_with_parallelism,
-)
 
-from tokenizers import AddedToken, Tokenizer, Encoding
-from tokenizers.models import Model, BPE, WordPiece
-from tokenizers.pre_tokenizers import ByteLevel
-from tokenizers.processors import RobertaProcessing, BertProcessing
-from tokenizers.normalizers import Lowercase
+import numpy as np
+import pytest
+
+from tokenizers import AddedToken, Encoding, Tokenizer
 from tokenizers.implementations import BertWordPieceTokenizer
+from tokenizers.models import BPE, Model, WordPiece
+from tokenizers.normalizers import Lowercase
+from tokenizers.pre_tokenizers import ByteLevel
+from tokenizers.processors import BertProcessing, RobertaProcessing
+
+from ..utils import bert_files, data_dir, multiprocessing_with_parallelism, roberta_files
 
 
 class TestAddedToken:
@@ -22,8 +19,7 @@ class TestAddedToken:
         assert type(added_token) == AddedToken
         assert str(added_token) == "<mask>"
         assert (
-            repr(added_token)
-            == 'AddedToken("<mask>", rstrip=False, lstrip=False, single_word=False, normalized=True)'
+            repr(added_token) == 'AddedToken("<mask>", rstrip=False, lstrip=False, single_word=False, normalized=True)'
         )
         assert added_token.rstrip == False
         assert added_token.lstrip == False
@@ -125,7 +121,9 @@ class TestTokenizer:
         assert type(output.ids) == list
         assert type(output.type_ids) == list
         assert type(output.offsets) == list
-        assert type(output.words) == list
+        with pytest.warns(DeprecationWarning):
+            assert type(output.words) == list
+        assert type(output.word_ids) == list
         assert type(output.special_tokens_mask) == list
         assert type(output.attention_mask) == list
         assert type(output.overflowing) == list
@@ -311,6 +309,14 @@ class TestTokenizer:
         trunc = tokenizer.truncation
         tokenizer.enable_truncation(**trunc)
 
+        # Left truncation direction
+        tokenizer.enable_truncation(2, direction="left")
+        output = tokenizer.encode("my name is john")
+        assert output.tokens == ["is", "john"]
+
+        output = tokenizer.encode("my name is john", "pair")
+        assert output.tokens == ["john", "pair"]
+
     def test_padding(self):
         tokenizer = Tokenizer(BPE())
         tokenizer.add_tokens(["my", "name", "is", "john", "pair"])
@@ -392,3 +398,17 @@ class TestTokenizer:
         tokenizer = Tokenizer(BPE())
         multiprocessing_with_parallelism(tokenizer, False)
         multiprocessing_with_parallelism(tokenizer, True)
+
+    def test_from_pretrained(self):
+        tokenizer = Tokenizer.from_pretrained("bert-base-cased")
+        output = tokenizer.encode("Hey there dear friend!", add_special_tokens=False)
+        assert output.tokens == ["Hey", "there", "dear", "friend", "!"]
+
+    def test_from_pretrained_revision(self):
+        tokenizer = Tokenizer.from_pretrained("anthony/tokenizers-test")
+        output = tokenizer.encode("Hey there dear friend!", add_special_tokens=False)
+        assert output.tokens == ["hey", "there", "dear", "friend", "!"]
+
+        tokenizer = Tokenizer.from_pretrained("anthony/tokenizers-test", revision="gpt-2")
+        output = tokenizer.encode("Hey there dear friend!", add_special_tokens=False)
+        assert output.tokens == ["Hey", "Ġthere", "Ġdear", "Ġfriend", "!"]

@@ -1,9 +1,10 @@
 use crate::pre_tokenizers::PreTokenizerWrapper;
 use crate::tokenizer::{PreTokenizedString, PreTokenizer, Result};
+use crate::utils::macro_rules_attribute;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[derive(Clone, Debug, PartialEq)]
+#[macro_rules_attribute(impl_serde_type!)]
 pub struct Sequence {
     pretokenizers: Vec<PreTokenizerWrapper>,
 }
@@ -33,7 +34,7 @@ mod tests {
     fn sequence_basic() {
         let pretokenizers = vec![
             PreTokenizerWrapper::WhitespaceSplit(WhitespaceSplit),
-            PreTokenizerWrapper::Punctuation(Punctuation),
+            PreTokenizerWrapper::Punctuation(Punctuation::default()),
         ];
         let pretok = Sequence::new(pretokenizers);
         let mut pretokenized: PreTokenizedString = "Hey friend!     How are you?!?".into();

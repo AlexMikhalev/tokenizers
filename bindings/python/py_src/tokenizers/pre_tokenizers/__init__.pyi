@@ -100,9 +100,12 @@ class ByteLevel(PreTokenizer):
         add_prefix_space (:obj:`bool`, `optional`, defaults to :obj:`True`):
             Whether to add a space to the first word if there isn't already one. This
             lets us treat `hello` exactly like `say hello`.
+        use_regex (:obj:`bool`, `optional`, defaults to :obj:`True`):
+            Set this to :obj:`False` to prevent this `pre_tokenizer` from using
+            the GPT2 specific regexp for spliting on whitespace.
     """
 
-    def __init__(self, add_prefix_space=True):
+    def __init__(self, add_prefix_space=True, use_regex=True):
         pass
     @staticmethod
     def alphabet():
@@ -308,10 +311,16 @@ class Metaspace(PreTokenizer):
 
 class Punctuation(PreTokenizer):
     """
-    This pre-tokenizer simply splits on punctuation as individual characters.`
+    This pre-tokenizer simply splits on punctuation as individual characters.
+
+    Args:
+        behavior (:class:`~tokenizers.SplitDelimiterBehavior`):
+            The behavior to use when splitting.
+            Choices: "removed", "isolated" (default), "merged_with_previous", "merged_with_next",
+            "contiguous"
     """
 
-    def __init__(self):
+    def __init__(self, behavior="isolated"):
         pass
     def pre_tokenize(self, pretok):
         """

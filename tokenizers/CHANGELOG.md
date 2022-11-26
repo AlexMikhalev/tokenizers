@@ -4,7 +4,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.13.2] 
+
+- Python only changes
+
+## [0.13.1] 
+
+- [#1072] Fixing Roberta type ids.
+
+## [0.13.0] 
+
+- [#1009] `unstable_wasm` feature to support building on Wasm (it's unstable !)
+- [#1008] `Decoder` is now a composable trait, but without being backward incompatible
+- [#1047, #1051, #1052] `Processor` is now a composable trait, but without being backward incompatible
+
+Both trait changes warrant a "major" number since, despite best efforts to not break backward
+  compatibility, the code is different enough that we cannot be exactly sure.
+
+## [0.12.1] 
+
+- [#938] **Reverted breaking change**. https://github.com/huggingface/transformers/issues/16520
+
+## [0.12.0] YANKED
+
+Bump minor version because of a breaking change.
+
+- [#938] [REVERTED IN 0.12.1] **Breaking change**. Decoder trait is modified to be composable. This is only breaking if you are using decoders on their own. tokenizers should be error free.
+- [#939] Making the regex in `ByteLevel` pre_tokenizer optional (necessary for BigScience)
+
+- [#952] Fixed the vocabulary size of UnigramTrainer output (to respect added tokens)
+- [#954] Fixed not being able to save vocabularies with holes in vocab (ConvBert). Yell warnings instead, but stop panicking.
+- [#961] Added link for Ruby port of `tokenizers`
+- [#960] Feature gate for `cli` and its `clap` dependency
+
+## [0.11.3]
+
+- [#919] Fixing single_word AddedToken. (regression from 0.11.2)
+- [#916] Deserializing faster `added_tokens` by loading them in batch.
+
+## [0.11.2]
+
+- [#884] Fixing bad deserialization following inclusion of a default for Punctuation
+
+## [0.11.1]
+
+- [#882] Fixing Punctuation deserialize without argument.
+- [#868] Fixing missing direction in TruncationParams
+- [#860] Adding TruncationSide to TruncationParams
+
+## [0.11.0]
 
 ### Fixed
 - [#236]: Fix a bug with offsets being shifted when there are sub-sequences (Usually with
@@ -125,6 +173,27 @@ advised, but that's not the question)
 split up in multiple bytes
 - [#174]: The `LongestFirst` truncation strategy had a bug
 
+
+[#1072]: https://github.com/huggingface/tokenizers/pull/1072
+[#956]: https://github.com/huggingface/tokenizers/pull/956
+[#1008]: https://github.com/huggingface/tokenizers/pull/1008
+[#1009]: https://github.com/huggingface/tokenizers/pull/1009
+[#1047]: https://github.com/huggingface/tokenizers/pull/1047
+[#1055]: https://github.com/huggingface/tokenizers/pull/1055
+[#1051]: https://github.com/huggingface/tokenizers/pull/1051
+[#1052]: https://github.com/huggingface/tokenizers/pull/1052
+[#938]: https://github.com/huggingface/tokenizers/pull/938
+[#939]: https://github.com/huggingface/tokenizers/pull/939
+[#952]: https://github.com/huggingface/tokenizers/pull/952
+[#954]: https://github.com/huggingface/tokenizers/pull/954
+[#961]: https://github.com/huggingface/tokenizers/pull/961
+[#960]: https://github.com/huggingface/tokenizers/pull/960
+[#919]: https://github.com/huggingface/tokenizers/pull/919
+[#916]: https://github.com/huggingface/tokenizers/pull/916
+[#884]: https://github.com/huggingface/tokenizers/pull/884
+[#882]: https://github.com/huggingface/tokenizers/pull/882
+[#868]: https://github.com/huggingface/tokenizers/pull/868
+[#860]: https://github.com/huggingface/tokenizers/pull/860
 [#403]: https://github.com/huggingface/tokenizers/pull/403
 [#377]: https://github.com/huggingface/tokenizers/pull/377
 [#355]: https://github.com/huggingface/tokenizers/pull/355

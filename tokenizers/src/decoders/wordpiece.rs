@@ -23,12 +23,12 @@ impl WordPiece {
 impl Default for WordPiece {
     fn default() -> Self {
         Self {
-            prefix: String::from("##"),
+            prefix: "##".to_owned(),
             cleanup: true,
         }
     }
 }
-pub fn cleanup(dirty_input: String) -> String {
+pub fn cleanup(dirty_input: &str) -> String {
     dirty_input
         .replace(" .", ".")
         .replace(" ?", "?")
@@ -44,12 +44,47 @@ pub fn cleanup(dirty_input: String) -> String {
 }
 
 impl Decoder for WordPiece {
-    fn decode(&self, tokens: Vec<String>) -> Result<String> {
-        let mut output = tokens.join(" ").replace(&format!(" {}", self.prefix), "");
-        if self.cleanup {
-            output = cleanup(output);
-        }
+    fn decode_chain(&self, mut tokens: Vec<String>) -> Result<Vec<String>> {
+        tokens
+            .iter_mut()
+            .enumerate()
+            .map(|(i, token)| {
+                if i != 0 {
+                    if token.starts_with(&self.prefix) {
+                        *token = token.replacen(&self.prefix, "", 1);
+                    } else {
+                        *token = format!(" {}", token);
+                    }
+                }
+                if self.cleanup {
+                    *token = cleanup(token);
+                }
+                Ok(token.to_string())
+            })
+            .collect::<Result<_>>()
+    }
+}
 
-        Ok(output)
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wordpiece_decoder() {
+        let decoder = WordPiece::new("##".to_string(), false);
+
+        assert_eq!(
+            decoder
+                .decode(vec![
+                    "##uelo".to_string(),
+                    "Ara".to_string(),
+                    "##új".to_string(),
+                    "##o".to_string(),
+                    "No".to_string(),
+                    "##guera".to_string()
+                ])
+                .unwrap(),
+            "##uelo Araújo Noguera"
+        );
     }
 }

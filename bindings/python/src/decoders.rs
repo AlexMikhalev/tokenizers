@@ -10,6 +10,7 @@ use tk::decoders::bpe::BPEDecoder;
 use tk::decoders::byte_level::ByteLevel;
 use tk::decoders::ctc::CTC;
 use tk::decoders::metaspace::Metaspace;
+use tk::decoders::sequence::Sequence;
 use tk::decoders::wordpiece::WordPiece;
 use tk::decoders::DecoderWrapper;
 use tk::Decoder;
@@ -21,7 +22,7 @@ use super::error::ToPyResult;
 ///
 /// This class is not supposed to be instantiated directly. Instead, any implementation of
 /// a Decoder will return an instance of this class when instantiated.
-#[pyclass(dict, module = "tokenizers.decoders", name=Decoder)]
+#[pyclass(dict, module = "tokenizers.decoders", name = "Decoder", subclass)]
 #[derive(Clone, Deserialize, Serialize)]
 pub struct PyDecoder {
     #[serde(flatten)]
@@ -33,10 +34,8 @@ impl PyDecoder {
         PyDecoder { decoder }
     }
 
-    pub(crate) fn get_as_subtype(&self) -> PyResult<PyObject> {
+    pub(crate) fn get_as_subtype(&self, py: Python<'_>) -> PyResult<PyObject> {
         let base = self.clone();
-        let gil = Python::acquire_gil();
-        let py = gil.python();
         Ok(match &self.decoder {
             PyDecoderWrapper::Custom(_) => Py::new(py, base)?.into_py(py),
             PyDecoderWrapper::Wrapped(inner) => match &*inner.as_ref().read().unwrap() {
@@ -45,14 +44,17 @@ impl PyDecoder {
                 DecoderWrapper::ByteLevel(_) => Py::new(py, (PyByteLevelDec {}, base))?.into_py(py),
                 DecoderWrapper::BPE(_) => Py::new(py, (PyBPEDecoder {}, base))?.into_py(py),
                 DecoderWrapper::CTC(_) => Py::new(py, (PyCTCDecoder {}, base))?.into_py(py),
+                DecoderWrapper::Sequence(_) => {
+                    Py::new(py, (PySequenceDecoder {}, base))?.into_py(py)
+                }
             },
         })
     }
 }
 
 impl Decoder for PyDecoder {
-    fn decode(&self, tokens: Vec<String>) -> tk::Result<String> {
-        self.decoder.decode(tokens)
+    fn decode_chain(&self, tokens: Vec<String>) -> tk::Result<Vec<String>> {
+        self.decoder.decode_chain(tokens)
     }
 }
 
@@ -97,7 +99,7 @@ impl PyDecoder {
     ///
     /// Returns:
     ///     :obj:`str`: The decoded string
-    #[text_signature = "(self, tokens)"]
+    #[pyo3(text_signature = "(self, tokens)")]
     fn decode(&self, tokens: Vec<String>) -> PyResult<String> {
         ToPyResult(self.decoder.decode(tokens)).into()
     }
@@ -141,8 +143,8 @@ macro_rules! setter {
 ///
 /// This decoder is to be used in tandem with the :class:`~tokenizers.pre_tokenizers.ByteLevel`
 /// :class:`~tokenizers.pre_tokenizers.PreTokenizer`.
-#[pyclass(extends=PyDecoder, module = "tokenizers.decoders", name=ByteLevel)]
-#[text_signature = "(self)"]
+#[pyclass(extends=PyDecoder, module = "tokenizers.decoders", name = "ByteLevel")]
+#[pyo3(text_signature = "(self)")]
 pub struct PyByteLevelDec {}
 #[pymethods]
 impl PyByteLevelDec {
@@ -161,8 +163,8 @@ impl PyByteLevelDec {
 ///     cleanup (:obj:`bool`, `optional`, defaults to :obj:`True`):
 ///         Whether to cleanup some tokenization artifacts. Mainly spaces before punctuation,
 ///         and some abbreviated english forms.
-#[pyclass(extends=PyDecoder, module = "tokenizers.decoders", name=WordPiece)]
-#[text_signature = "(self, prefix=\"##\", cleanup=True)"]
+#[pyclass(extends=PyDecoder, module = "tokenizers.decoders", name = "WordPiece")]
+#[pyo3(text_signature = "(self, prefix=\"##\", cleanup=True)")]
 pub struct PyWordPieceDec {}
 #[pymethods]
 impl PyWordPieceDec {
@@ -203,8 +205,8 @@ impl PyWordPieceDec {
 ///     add_prefix_space (:obj:`bool`, `optional`, defaults to :obj:`True`):
 ///         Whether to add a space to the first word if there isn't already one. This
 ///         lets us treat `hello` exactly like `say hello`.
-#[pyclass(extends=PyDecoder, module = "tokenizers.decoders", name=Metaspace)]
-#[text_signature = "(self, replacement = \"▁\", add_prefix_space = True)"]
+#[pyclass(extends=PyDecoder, module = "tokenizers.decoders", name = "Metaspace")]
+#[pyo3(text_signature = "(self, replacement = \"▁\", add_prefix_space = True)")]
 pub struct PyMetaspaceDec {}
 #[pymethods]
 impl PyMetaspaceDec {
@@ -244,8 +246,8 @@ impl PyMetaspaceDec {
 ///     suffix (:obj:`str`, `optional`, defaults to :obj:`</w>`):
 ///         The suffix that was used to caracterize an end-of-word. This suffix will
 ///         be replaced by whitespaces during the decoding
-#[pyclass(extends=PyDecoder, module = "tokenizers.decoders", name=BPEDecoder)]
-#[text_signature = "(self, suffix=\"</w>\")"]
+#[pyclass(extends=PyDecoder, module = "tokenizers.decoders", name = "BPEDecoder")]
+#[pyo3(text_signature = "(self, suffix=\"</w>\")")]
 pub struct PyBPEDecoder {}
 #[pymethods]
 impl PyBPEDecoder {
@@ -276,8 +278,8 @@ impl PyBPEDecoder {
 ///     cleanup (:obj:`bool`, `optional`, defaults to :obj:`True`):
 ///         Whether to cleanup some tokenization artifacts.
 ///         Mainly spaces before punctuation, and some abbreviated english forms.
-#[pyclass(extends=PyDecoder, module = "tokenizers.decoders", name=CTC)]
-#[text_signature = "(self, pad_token=\"<pad>\", word_delimiter_token=\"|\", cleanup=True)"]
+#[pyclass(extends=PyDecoder, module = "tokenizers.decoders", name = "CTC")]
+#[pyo3(text_signature = "(self, pad_token=\"<pad>\", word_delimiter_token=\"|\", cleanup=True)")]
 pub struct PyCTCDecoder {}
 #[pymethods]
 impl PyCTCDecoder {
@@ -325,6 +327,36 @@ impl PyCTCDecoder {
     }
 }
 
+/// Sequence Decoder
+///
+/// Args:
+///     decoders (:obj:`List[Decoder]`)
+///         The decoders that need to be chained
+#[pyclass(extends=PyDecoder, module = "tokenizers.decoders", name="Sequence")]
+#[pyo3(text_signature = "(self, decoders)")]
+pub struct PySequenceDecoder {}
+#[pymethods]
+impl PySequenceDecoder {
+    #[new]
+    #[args(decoders)]
+    fn new(decoders_py: &PyList) -> PyResult<(Self, PyDecoder)> {
+        let mut decoders: Vec<DecoderWrapper> = Vec::with_capacity(decoders_py.len());
+        for decoder_py in decoders_py.iter() {
+            let decoder: PyRef<PyDecoder> = decoder_py.extract()?;
+            let decoder = match &decoder.decoder {
+                PyDecoderWrapper::Wrapped(inner) => inner,
+                PyDecoderWrapper::Custom(_) => unimplemented!(),
+            };
+            decoders.push(decoder.read().unwrap().clone());
+        }
+        Ok((PySequenceDecoder {}, Sequence::new(decoders).into()))
+    }
+
+    fn __getnewargs__<'p>(&self, py: Python<'p>) -> &'p PyTuple {
+        PyTuple::new(py, [PyList::empty(py)])
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct CustomDecoder {
     inner: PyObject,
@@ -342,7 +374,17 @@ impl Decoder for CustomDecoder {
             let decoded = self
                 .inner
                 .call_method(py, "decode", (tokens,), None)?
-                .extract::<String>(py)?;
+                .extract(py)?;
+            Ok(decoded)
+        })
+    }
+
+    fn decode_chain(&self, tokens: Vec<String>) -> tk::Result<Vec<String>> {
+        Python::with_gil(|py| {
+            let decoded = self
+                .inner
+                .call_method(py, "decode_chain", (tokens,), None)?
+                .extract(py)?;
             Ok(decoded)
         })
     }
@@ -396,12 +438,25 @@ where
 }
 
 impl Decoder for PyDecoderWrapper {
-    fn decode(&self, tokens: Vec<String>) -> tk::Result<String> {
+    fn decode_chain(&self, tokens: Vec<String>) -> tk::Result<Vec<String>> {
         match self {
-            PyDecoderWrapper::Wrapped(inner) => inner.read().unwrap().decode(tokens),
-            PyDecoderWrapper::Custom(inner) => inner.read().unwrap().decode(tokens),
+            PyDecoderWrapper::Wrapped(inner) => inner.read().unwrap().decode_chain(tokens),
+            PyDecoderWrapper::Custom(inner) => inner.read().unwrap().decode_chain(tokens),
         }
     }
+}
+
+/// Decoders Module
+#[pymodule]
+pub fn decoders(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_class::<PyDecoder>()?;
+    m.add_class::<PyByteLevelDec>()?;
+    m.add_class::<PyWordPieceDec>()?;
+    m.add_class::<PyMetaspaceDec>()?;
+    m.add_class::<PyBPEDecoder>()?;
+    m.add_class::<PyCTCDecoder>()?;
+    m.add_class::<PySequenceDecoder>()?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -416,13 +471,11 @@ mod test {
 
     #[test]
     fn get_subtype() {
-        let py_dec = PyDecoder::new(Metaspace::default().into());
-        let py_meta = py_dec.get_as_subtype().unwrap();
-        let gil = Python::acquire_gil();
-        assert_eq!(
-            "tokenizers.decoders.Metaspace",
-            py_meta.as_ref(gil.python()).get_type().name()
-        );
+        Python::with_gil(|py| {
+            let py_dec = PyDecoder::new(Metaspace::default().into());
+            let py_meta = py_dec.get_as_subtype(py).unwrap();
+            assert_eq!("Metaspace", py_meta.as_ref(py).get_type().name().unwrap());
+        })
     }
 
     #[test]

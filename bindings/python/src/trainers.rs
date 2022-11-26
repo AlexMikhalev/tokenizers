@@ -1,32 +1,34 @@
 use std::sync::{Arc, RwLock};
 
-use pyo3::exceptions;
-use pyo3::prelude::*;
-use pyo3::types::*;
-use tk::models::TrainerWrapper;
-use tk::Trainer;
-use tokenizers as tk;
-
 use crate::models::PyModel;
 use crate::tokenizer::PyAddedToken;
 use crate::utils::PyChar;
+use pyo3::exceptions;
+use pyo3::prelude::*;
+use pyo3::types::*;
+use serde::{Deserialize, Serialize};
+use tk::models::TrainerWrapper;
+use tk::Trainer;
+use tokenizers as tk;
 
 /// Base class for all trainers
 ///
 /// This class is not supposed to be instantiated directly. Instead, any implementation of a
 /// Trainer will return an instance of this class when instantiated.
-#[pyclass(name=Trainer, module = "tokenizers.trainers", name=Trainer)]
-#[derive(Clone)]
-#[text_signature = "(self, vocab_size=30000, min_frequency=0,show_progress=True, special_tokens=[],limit_alphabet=None, initial_alphabet = [], continuing_subword_prefix=None, end_of_word_suffix=None)"]
+#[pyclass(module = "tokenizers.trainers", name = "Trainer", subclass)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct PyTrainer {
+    #[serde(flatten)]
     pub trainer: Arc<RwLock<TrainerWrapper>>,
 }
 
 impl PyTrainer {
-    pub(crate) fn get_as_subtype(&self) -> PyResult<PyObject> {
+    #[cfg(test)]
+    pub(crate) fn new(trainer: Arc<RwLock<TrainerWrapper>>) -> Self {
+        PyTrainer { trainer }
+    }
+    pub(crate) fn get_as_subtype(&self, py: Python<'_>) -> PyResult<PyObject> {
         let base = self.clone();
-        let gil = Python::acquire_gil();
-        let py = gil.python();
         Ok(match *self.trainer.as_ref().read().unwrap() {
             TrainerWrapper::BpeTrainer(_) => Py::new(py, (PyBpeTrainer {}, base))?.into_py(py),
             TrainerWrapper::WordPieceTrainer(_) => {
@@ -39,6 +41,34 @@ impl PyTrainer {
                 Py::new(py, (PyUnigramTrainer {}, base))?.into_py(py)
             }
         })
+    }
+}
+#[pymethods]
+impl PyTrainer {
+    fn __getstate__(&self, py: Python) -> PyResult<PyObject> {
+        let data = serde_json::to_string(&self.trainer).map_err(|e| {
+            exceptions::PyException::new_err(format!(
+                "Error while attempting to pickle PyTrainer: {}",
+                e
+            ))
+        })?;
+        Ok(PyBytes::new(py, data.as_bytes()).to_object(py))
+    }
+
+    fn __setstate__(&mut self, py: Python, state: PyObject) -> PyResult<()> {
+        match state.extract::<&PyBytes>(py) {
+            Ok(s) => {
+                let unpickled = serde_json::from_slice(s.as_bytes()).map_err(|e| {
+                    exceptions::PyException::new_err(format!(
+                        "Error while attempting to unpickle PyTrainer: {}",
+                        e
+                    ))
+                })?;
+                self.trainer = unpickled;
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
     }
 }
 
@@ -132,7 +162,7 @@ macro_rules! setter {
 ///
 ///     end_of_word_suffix (:obj:`str`, `optional`):
 ///         A suffix to be used for every subword that is a end-of-word.
-#[pyclass(extends=PyTrainer, module = "tokenizers.trainers", name=BpeTrainer)]
+#[pyclass(extends=PyTrainer, module = "tokenizers.trainers", name = "BpeTrainer")]
 pub struct PyBpeTrainer {}
 #[pymethods]
 impl PyBpeTrainer {
@@ -290,9 +320,7 @@ impl PyBpeTrainer {
                         builder = builder.initial_alphabet(
                             alphabet
                                 .into_iter()
-                                .map(|s| s.chars().next())
-                                .filter(|c| c.is_some())
-                                .map(|c| c.unwrap())
+                                .filter_map(|s| s.chars().next())
                                 .collect(),
                         );
                     }
@@ -337,8 +365,10 @@ impl PyBpeTrainer {
 ///
 ///     end_of_word_suffix (:obj:`str`, `optional`):
 ///         A suffix to be used for every subword that is a end-of-word.
-#[pyclass(extends=PyTrainer, module = "tokenizers.trainers", name=WordPieceTrainer)]
-#[text_signature = "(self, vocab_size=30000, min_frequency=0, show_progress=True, special_tokens=[], limit_alphabet=None, initial_alphabet= [],continuing_subword_prefix=\"##\", end_of_word_suffix=None)"]
+#[pyclass(extends=PyTrainer, module = "tokenizers.trainers", name = "WordPieceTrainer")]
+#[pyo3(
+    text_signature = "(self, vocab_size=30000, min_frequency=0, show_progress=True, special_tokens=[], limit_alphabet=None, initial_alphabet= [],continuing_subword_prefix=\"##\", end_of_word_suffix=None)"
+)]
 pub struct PyWordPieceTrainer {}
 #[pymethods]
 impl PyWordPieceTrainer {
@@ -496,9 +526,7 @@ impl PyWordPieceTrainer {
                         builder = builder.initial_alphabet(
                             alphabet
                                 .into_iter()
-                                .map(|s| s.chars().next())
-                                .filter(|c| c.is_some())
-                                .map(|c| c.unwrap())
+                                .filter_map(|s| s.chars().next())
                                 .collect(),
                         );
                     }
@@ -529,7 +557,7 @@ impl PyWordPieceTrainer {
 ///
 ///     special_tokens (:obj:`List[Union[str, AddedToken]]`):
 ///         A list of special tokens the model should know of.
-#[pyclass(extends=PyTrainer, module = "tokenizers.trainers", name=WordLevelTrainer)]
+#[pyclass(extends=PyTrainer, module = "tokenizers.trainers", name = "WordLevelTrainer")]
 pub struct PyWordLevelTrainer {}
 #[pymethods]
 impl PyWordLevelTrainer {
@@ -671,8 +699,24 @@ impl PyWordLevelTrainer {
 ///         if not seen in the training dataset.
 ///         If the strings contain more than one character, only the first one
 ///         is kept.
-#[pyclass(extends=PyTrainer, module = "tokenizers.trainers", name=UnigramTrainer)]
-#[text_signature = "(self, vocab_size=8000, show_progress=True, special_tokens= [])"]
+///
+///     shrinking_factor (:obj:`float`):
+///         The shrinking factor used at each step of the training to prune the
+///         vocabulary.
+///
+///     unk_token (:obj:`str`):
+///         The token used for out-of-vocabulary tokens.
+///
+///     max_piece_length (:obj:`int`):
+///         The maximum length of a given token.
+///
+///     n_sub_iterations (:obj:`int`):
+///         The number of iterations of the EM algorithm to perform before
+///         pruning the vocabulary.
+#[pyclass(extends=PyTrainer, module = "tokenizers.trainers", name = "UnigramTrainer")]
+#[pyo3(
+    text_signature = "(self, vocab_size=8000, show_progress=True, special_tokens=[], shrinking_factor=0.75, unk_token=None, max_piece_length=16, n_sub_iterations=2)"
+)]
 pub struct PyUnigramTrainer {}
 #[pymethods]
 impl PyUnigramTrainer {
@@ -772,9 +816,7 @@ impl PyUnigramTrainer {
                         builder.initial_alphabet(
                             alphabet
                                 .into_iter()
-                                .map(|s| s.chars().next())
-                                .filter(|c| c.is_some())
-                                .map(|c| c.unwrap())
+                                .filter_map(|s| s.chars().next())
                                 .collect(),
                         )
                     }
@@ -810,5 +852,31 @@ impl PyUnigramTrainer {
                 exceptions::PyException::new_err(format!("Cannot build UnigramTrainer: {}", e))
             })?;
         Ok((PyUnigramTrainer {}, trainer.into()))
+    }
+}
+
+/// Trainers Module
+#[pymodule]
+pub fn trainers(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_class::<PyTrainer>()?;
+    m.add_class::<PyBpeTrainer>()?;
+    m.add_class::<PyWordPieceTrainer>()?;
+    m.add_class::<PyWordLevelTrainer>()?;
+    m.add_class::<PyUnigramTrainer>()?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tk::models::bpe::trainer::BpeTrainer;
+
+    #[test]
+    fn get_subtype() {
+        Python::with_gil(|py| {
+            let py_trainer = PyTrainer::new(Arc::new(RwLock::new(BpeTrainer::default().into())));
+            let py_bpe = py_trainer.get_as_subtype(py).unwrap();
+            assert_eq!("BpeTrainer", py_bpe.as_ref(py).get_type().name().unwrap());
+        })
     }
 }

@@ -14,12 +14,30 @@
 //!
 //! 1. The `Normalizer`: in charge of normalizing the text. Common examples of normalization are
 //!    the [unicode normalization standards](https://unicode.org/reports/tr15/#Norm_Forms), such as `NFD` or `NFKC`.
+//!    More details about how to use the `Normalizers` are available on the
+//!    [Hugging Face blog](https://huggingface.co/docs/tokenizers/components#normalizers)
 //! 2. The `PreTokenizer`: in charge of creating initial words splits in the text. The most common way of
 //!    splitting text is simply on whitespace.
 //! 3. The `Model`: in charge of doing the actual tokenization. An example of a `Model` would be
 //!    `BPE` or `WordPiece`.
 //! 4. The `PostProcessor`: in charge of post-processing the `Encoding` to add anything relevant
 //!    that, for example, a language model would need, such as special tokens.
+//!
+//! ## Loading a pretrained tokenizer from the Hub
+//! ```
+//! use tokenizers::tokenizer::{Result, Tokenizer};
+//!
+//! fn main() -> Result<()> {
+//!     # #[cfg(feature = "http")]
+//!     # {
+//!         let tokenizer = Tokenizer::from_pretrained("bert-base-cased", None)?;
+//!
+//!         let encoding = tokenizer.encode("Hey there!", false)?;
+//!         println!("{:?}", encoding.get_tokens());
+//!     # }
+//!     Ok(())
+//! }
+//! ```
 //!
 //! ## Deserialization and tokenization example
 //!
@@ -129,3 +147,7 @@ pub use tokenizer::*;
 
 // Re-export also parallelism utils
 pub use utils::parallelism;
+
+// Re-export for from_pretrained
+#[cfg(feature = "http")]
+pub use utils::from_pretrained::FromPretrainedParameters;

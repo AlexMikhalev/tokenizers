@@ -1,9 +1,9 @@
 use crate::tokenizer::{NormalizedString, Normalizer, Result};
-use onig::Regex;
+use crate::utils::SysRegex;
 use serde::{Deserialize, Serialize};
 
 /// Represents the different patterns that `Replace` can use
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq)]
 pub enum ReplacePattern {
     String(String),
     Regex(String),
@@ -11,13 +11,13 @@ pub enum ReplacePattern {
 
 impl From<String> for ReplacePattern {
     fn from(v: String) -> Self {
-        ReplacePattern::String(v)
+        Self::String(v)
     }
 }
 
 impl From<&str> for ReplacePattern {
     fn from(v: &str) -> Self {
-        ReplacePattern::String(v.to_owned())
+        Self::String(v.to_owned())
     }
 }
 
@@ -34,7 +34,7 @@ impl std::convert::TryFrom<ReplaceDeserializer> for Replace {
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn try_from(v: ReplaceDeserializer) -> Result<Self> {
-        Replace::new(v.pattern, v.content)
+        Self::new(v.pattern, v.content)
     }
 }
 
@@ -46,17 +46,17 @@ pub struct Replace {
     pattern: ReplacePattern,
     content: String,
     #[serde(skip)]
-    regex: Regex,
+    regex: SysRegex,
 }
 
 impl Clone for Replace {
     fn clone(&self) -> Self {
-        Replace::new(self.pattern.clone(), &self.content).unwrap()
+        Self::new(self.pattern.clone(), &self.content).unwrap()
     }
 }
 
 impl PartialEq for Replace {
-    fn eq(&self, other: &Replace) -> bool {
+    fn eq(&self, other: &Self) -> bool {
         self.pattern == other.pattern && self.content == other.content
     }
 }
@@ -65,8 +65,8 @@ impl Replace {
     pub fn new<I: Into<ReplacePattern>, C: Into<String>>(pattern: I, content: C) -> Result<Self> {
         let pattern: ReplacePattern = pattern.into();
         let regex = match &pattern {
-            ReplacePattern::String(s) => Regex::new(&regex::escape(s))?,
-            ReplacePattern::Regex(r) => Regex::new(r)?,
+            ReplacePattern::String(s) => SysRegex::new(&regex::escape(s))?,
+            ReplacePattern::Regex(r) => SysRegex::new(r)?,
         };
 
         Ok(Self {

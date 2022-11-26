@@ -1,12 +1,12 @@
-use onig::Regex;
-use serde::{Deserialize, Serialize};
+use crate::utils::SysRegex;
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::tokenizer::{
     pattern::Invert, PreTokenizedString, PreTokenizer, Result, SplitDelimiterBehavior,
 };
 
 /// Represents the different patterns that `Split` can use
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq)]
 pub enum SplitPattern {
     String(String),
     Regex(String),
@@ -14,52 +14,58 @@ pub enum SplitPattern {
 
 impl From<String> for SplitPattern {
     fn from(v: String) -> Self {
-        SplitPattern::String(v)
+        Self::String(v)
     }
 }
 
 impl From<&str> for SplitPattern {
     fn from(v: &str) -> Self {
-        SplitPattern::String(v.to_owned())
+        Self::String(v.to_owned())
     }
 }
 
-/// We use this custom deserializer to provide the value for `regex` for `Split`
-#[doc(hidden)]
-#[derive(Deserialize)]
+#[derive(Debug, Serialize)]
 #[serde(tag = "type")]
-struct SplitDeserializer {
-    pattern: SplitPattern,
-    behavior: SplitDelimiterBehavior,
-    invert: bool,
-}
-
-impl std::convert::TryFrom<SplitDeserializer> for Split {
-    type Error = Box<dyn std::error::Error + Send + Sync>;
-
-    fn try_from(v: SplitDeserializer) -> Result<Self> {
-        Split::new(v.pattern, v.behavior, v.invert)
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "type", try_from = "SplitDeserializer")]
 pub struct Split {
     pattern: SplitPattern,
     #[serde(skip)]
-    regex: Regex,
+    regex: SysRegex,
     behavior: SplitDelimiterBehavior,
     invert: bool,
+}
+
+impl<'de> Deserialize<'de> for Split {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        enum Type {
+            Split,
+        }
+
+        #[derive(Deserialize)]
+        pub struct SplitHelper {
+            #[serde(rename = "type")]
+            _type: Type,
+            pattern: SplitPattern,
+            behavior: SplitDelimiterBehavior,
+            invert: bool,
+        }
+
+        let helper = SplitHelper::deserialize(deserializer)?;
+        Self::new(helper.pattern, helper.behavior, helper.invert).map_err(serde::de::Error::custom)
+    }
 }
 
 impl Clone for Split {
     fn clone(&self) -> Self {
-        Split::new(self.pattern.clone(), self.behavior, self.invert).unwrap()
+        Self::new(self.pattern.clone(), self.behavior, self.invert).unwrap()
     }
 }
 
 impl PartialEq for Split {
-    fn eq(&self, other: &Split) -> bool {
+    fn eq(&self, other: &Self) -> bool {
         self.pattern == other.pattern
             && self.behavior == other.behavior
             && self.invert == other.invert
@@ -74,8 +80,8 @@ impl Split {
     ) -> Result<Self> {
         let pattern: SplitPattern = pattern.into();
         let regex = match &pattern {
-            SplitPattern::String(s) => Regex::new(&regex::escape(s))?,
-            SplitPattern::Regex(r) => Regex::new(r)?,
+            SplitPattern::String(s) => SysRegex::new(&regex::escape(s))?,
+            SplitPattern::Regex(r) => SysRegex::new(r)?,
         };
 
         Ok(Self {

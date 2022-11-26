@@ -1,3 +1,53 @@
+## [0.13.2] 
+
+- Python only chnages.
+
+## [0.13.1] 
+
+- [#1072] Fixing Roberta type ids.
+
+## [0.13.0] 
+
+- [#1008] `Decoder` is now a composable trait, but without being backward incompatible
+- [#1047, #1051, #1052] `Processor` is now a composable trait, but without being backward incompatible
+
+## [0.12.1] 
+
+- [#938] **Reverted breaking change**. https://github.com/huggingface/transformers/issues/16520
+
+## [0.12.0] YANKED
+
+Bump minor version because of a breaking change.
+Using `0.12` to match other bindings.
+
+- [#938] [REVERTED IN 0.12.1] **Breaking change**. Decoder trait is modified to be composable. This is only breaking if you are using decoders on their own. tokenizers should be error free.
+- [#939] Making the regex in `ByteLevel` pre_tokenizer optional (necessary for BigScience)
+
+- [#952] Fixed the vocabulary size of UnigramTrainer output (to respect added tokens)
+- [#954] Fixed not being able to save vocabularies with holes in vocab (ConvBert). Yell warnings instead, but stop panicking.
+- [#961] Added link for Ruby port of `tokenizers`
+
+# [0.8.0](https://github.com/huggingface/tokenizers/compare/node-v0.7.0...node-v0.8.0) (2021-09-02)
+
+### BREACKING CHANGES
+- Many improvements on the Trainer ([#519](https://github.com/huggingface/tokenizers/pull/519)).
+The files must now be provided first when calling `tokenizer.train(files, trainer)`.
+
+### Features
+- Adding the `TemplateProcessing`
+- Add `WordLevel` and `Unigram` models ([#490](https://github.com/huggingface/tokenizers/pull/490))
+- Add `nmtNormalizer` and `precompiledNormalizer` normalizers ([#490](https://github.com/huggingface/tokenizers/pull/490))
+- Add `templateProcessing` post-processor ([#490](https://github.com/huggingface/tokenizers/pull/490))
+- Add `digitsPreTokenizer` pre-tokenizer ([#490](https://github.com/huggingface/tokenizers/pull/490))
+- Add support for mapping to sequences ([#506](https://github.com/huggingface/tokenizers/pull/506))
+- Add `splitPreTokenizer` pre-tokenizer ([#542](https://github.com/huggingface/tokenizers/pull/542))
+- Add `behavior` option to the `punctuationPreTokenizer` ([#657](https://github.com/huggingface/tokenizers/pull/657))
+- Add the ability to load tokenizers from the Hugging Face Hub using `fromPretrained` ([#780](https://github.com/huggingface/tokenizers/pull/780))
+
+### Fixes
+- Fix a bug where long tokenizer.json files would be incorrectly deserialized ([#459](https://github.com/huggingface/tokenizers/pull/459))
+- Fix RobertaProcessing deserialization in PostProcessorWrapper ([#464](https://github.com/huggingface/tokenizers/pull/464))
+
 # [0.7.0](https://github.com/huggingface/tokenizers/compare/node-v0.6.2...node-v0.7.0) (2020-07-01)
 
 ### BREAKING CHANGES
@@ -121,3 +171,20 @@
 - Fix default special tokens in `BertWordPieceTokenizer` ([10e2d28](https://github.com/huggingface/tokenizers/commit/10e2d286caf517f0977c04cf8e1924aed90403c9))
 - Fix return type of `getSpecialTokensMask` on `Encoding` ([9770be5](https://github.com/huggingface/tokenizers/commit/9770be566175dc9c44dd7dcaa00a57d0e4ca632b))
 - Actually add special tokens in tokenizers implementations ([acef252](https://github.com/huggingface/tokenizers/commit/acef252dacc43adc414175cfc325668ad1488753))
+
+
+[#1072]: https://github.com/huggingface/tokenizers/pull/1072
+[#956]: https://github.com/huggingface/tokenizers/pull/956
+[#1008]: https://github.com/huggingface/tokenizers/pull/1008
+[#1009]: https://github.com/huggingface/tokenizers/pull/1009
+[#1047]: https://github.com/huggingface/tokenizers/pull/1047
+[#1055]: https://github.com/huggingface/tokenizers/pull/1055
+[#1051]: https://github.com/huggingface/tokenizers/pull/1051
+[#1052]: https://github.com/huggingface/tokenizers/pull/1052
+[#938]: https://github.com/huggingface/tokenizers/pull/938
+[#939]: https://github.com/huggingface/tokenizers/pull/939
+[#952]: https://github.com/huggingface/tokenizers/pull/952
+[#954]: https://github.com/huggingface/tokenizers/pull/954
+[#962]: https://github.com/huggingface/tokenizers/pull/962
+[#961]: https://github.com/huggingface/tokenizers/pull/961
+[#960]: https://github.com/huggingface/tokenizers/pull/960

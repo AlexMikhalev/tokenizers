@@ -1,12 +1,13 @@
 use std::collections::{HashMap, HashSet};
 
-use onig::Regex;
+use crate::utils::SysRegex;
 use serde::{Deserialize, Serialize};
 
 use crate::tokenizer::{
     Decoder, Encoding, PostProcessor, PreTokenizedString, PreTokenizer, Result,
     SplitDelimiterBehavior,
 };
+use crate::utils::macro_rules_attribute;
 
 fn bytes_char() -> HashMap<u8, char> {
     let mut bs: Vec<u8> = vec![];
@@ -32,19 +33,20 @@ fn bytes_char() -> HashMap<u8, char> {
 }
 
 lazy_static! {
-    static ref RE: Regex =
-        Regex::new(r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+")
-            .unwrap();
+    static ref RE: SysRegex = SysRegex::new(
+        r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"
+    )
+    .unwrap();
     static ref BYTES_CHAR: HashMap<u8, char> = bytes_char();
     static ref CHAR_BYTES: HashMap<char, u8> =
         bytes_char().into_iter().map(|(c, b)| (b, c)).collect();
 }
 
-#[derive(Deserialize, Serialize, Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 /// Provides all the necessary steps to handle the BPE tokenization at the byte-level. Takes care
 /// of all the required processing steps to transform a UTF-8 string as needed before and after the
 /// BPE model does its job.
-#[serde(tag = "type")]
+#[macro_rules_attribute(impl_serde_type!)]
 #[non_exhaustive]
 pub struct ByteLevel {
     /// Whether to add a leading space to the first word. This allows to treat the leading word
@@ -52,21 +54,33 @@ pub struct ByteLevel {
     pub add_prefix_space: bool,
     /// Whether the post processing step should trim offsets to avoid including whitespaces.
     pub trim_offsets: bool,
+
+    /// Whether to use the standard GPT2 regex for whitespace splitting
+    /// Set it to False if you want to use your own splitting.
+    #[serde(default = "default_true")]
+    pub use_regex: bool,
 }
+
+fn default_true() -> bool {
+    true
+}
+
 impl Default for ByteLevel {
     fn default() -> Self {
         Self {
             add_prefix_space: true,
             trim_offsets: true,
+            use_regex: true,
         }
     }
 }
 
 impl ByteLevel {
-    pub fn new(add_prefix_space: bool, trim_offsets: bool) -> Self {
-        ByteLevel {
+    pub fn new(add_prefix_space: bool, trim_offsets: bool, use_regex: bool) -> Self {
+        Self {
             add_prefix_space,
             trim_offsets,
+            use_regex,
         }
     }
 
@@ -74,13 +88,21 @@ impl ByteLevel {
         BYTES_CHAR.values().copied().collect()
     }
 
+    #[must_use]
     pub fn add_prefix_space(mut self, v: bool) -> Self {
         self.add_prefix_space = v;
         self
     }
 
+    #[must_use]
     pub fn trim_offsets(mut self, v: bool) -> Self {
         self.trim_offsets = v;
+        self
+    }
+
+    #[must_use]
+    pub fn use_regex(mut self, v: bool) -> Self {
+        self.use_regex = v;
         self
     }
 }
@@ -90,12 +112,16 @@ impl ByteLevel {
 // TODO: Give the ability to modify this regex
 impl PreTokenizer for ByteLevel {
     fn pre_tokenize(&self, pretokenized: &mut PreTokenizedString) -> Result<()> {
-        let re_ref: &Regex = &RE;
+        let re_ref: &SysRegex = &RE;
         pretokenized.split(|_, mut normalized| {
             if self.add_prefix_space && !normalized.get().starts_with(' ') {
                 normalized.prepend(" ");
             }
-            normalized.split(re_ref, SplitDelimiterBehavior::Isolated)
+            if self.use_regex {
+                normalized.split(re_ref, SplitDelimiterBehavior::Isolated)
+            } else {
+                Ok(vec![normalized])
+            }
         })?;
         pretokenized.normalize(|normalized| {
             let s = normalized.get();
@@ -109,7 +135,7 @@ impl PreTokenizer for ByteLevel {
                     bytes
                         .iter()
                         .enumerate()
-                        .map(|(i, b)| (BYTES_CHAR[b], if i > 0 { 1 } else { 0 })),
+                        .map(|(i, b)| (BYTES_CHAR[b], isize::from(i > 0))),
                 );
             }
             normalized.transform(transformations.into_iter(), 0);
@@ -120,8 +146,11 @@ impl PreTokenizer for ByteLevel {
 
 /// As a `Decoder`, `ByteLevel` is in charge of converting any byte-level characters to their
 /// unicode counterpart, before merging everything back into a single String.
+/// This decoder will consume the tokens and merge them in one step to alleviate
+/// the fact that single token decoded might be a byte not representable as
+/// as String.
 impl Decoder for ByteLevel {
-    fn decode(&self, tokens: Vec<String>) -> Result<String> {
+    fn decode_chain(&self, tokens: Vec<String>) -> Result<Vec<String>> {
         let toks = tokens
             .into_iter()
             .flat_map(|t| {
@@ -134,8 +163,8 @@ impl Decoder for ByteLevel {
                     })
                     .unwrap_or_else(|| t.as_bytes().to_vec())
             })
-            .collect::<Vec<_>>();
-        Ok(String::from_utf8_lossy(&toks).into_owned())
+            .collect::<Vec<u8>>();
+        Ok(vec![String::from_utf8_lossy(&toks).to_string()])
     }
 }
 
@@ -145,29 +174,25 @@ impl PostProcessor for ByteLevel {
         0
     }
 
-    fn process(
+    fn process_encodings(
         &self,
-        mut encoding: Encoding,
-        mut pair_encoding: Option<Encoding>,
-        add_special_tokens: bool,
-    ) -> Result<Encoding> {
+        mut encodings: Vec<Encoding>,
+        _add_special_tokens: bool,
+    ) -> Result<Vec<Encoding>> {
         if self.trim_offsets {
-            process_offsets(&mut encoding, self.add_prefix_space);
-            encoding
-                .get_overflowing_mut()
-                .iter_mut()
-                .for_each(|mut encoding| process_offsets(&mut encoding, self.add_prefix_space));
-
-            if let Some(mut encoding) = pair_encoding.as_mut() {
-                process_offsets(&mut encoding, self.add_prefix_space);
+            for encoding in encodings.iter_mut() {
+                process_offsets(encoding, self.add_prefix_space);
                 encoding
                     .get_overflowing_mut()
                     .iter_mut()
-                    .for_each(|mut encoding| process_offsets(&mut encoding, self.add_prefix_space));
+                    .for_each(|encoding| process_offsets(encoding, self.add_prefix_space));
             }
         }
-
-        <dyn PostProcessor>::default_process(encoding, pair_encoding, add_special_tokens)
+        for (i, encoding) in encodings.iter_mut().enumerate() {
+            encoding.set_sequence_id(i);
+        }
+        Ok(encodings)
+        //<dyn PostProcessor>::default_process(encodings, add_special_tokens)
     }
 }
 
@@ -185,7 +210,11 @@ pub fn process_offsets(encoding: &mut Encoding, add_prefix_space: bool) {
 
         if leading_spaces > 0 || trailing_spaces > 0 {
             if leading_spaces > 0 {
-                if i == 0 && add_prefix_space && leading_spaces == 1 {
+                // If user uses `is_pretokenized=True` we might have
+                // offsets that might begin at the start of the string but are
+                // NOT the first token.
+                let is_first = i == 0 || offsets.0 == 0;
+                if is_first && add_prefix_space && leading_spaces == 1 {
                     // If we are processing the first pair of offsets, with `add_prefix_space`,
                     // then we shouldn't remove anything we added. If there are more than one
                     // leading spaces though, it means we didn't add them, and they should be
@@ -237,12 +266,26 @@ mod tests {
     }
 
     #[test]
+    fn pre_tokenization_no_regex() {
+        let bytelevel = ByteLevel::default().use_regex(false);
+        let mut pretokenized: PreTokenizedString = "Hello my friend, how is your day going?".into();
+        bytelevel.pre_tokenize(&mut pretokenized).unwrap();
+        assert_eq!(
+            pretokenized
+                .get_splits(OffsetReferential::Original, OffsetType::Byte)
+                .into_iter()
+                .map(|(s, o, _)| (s, o))
+                .collect::<Vec<_>>(),
+            vec![("ĠHelloĠmyĠfriend,ĠhowĠisĠyourĠdayĠgoing?", (0, 39))]
+        );
+    }
+
+    #[test]
     fn decoding() {
         let bytelevel = ByteLevel::default().add_prefix_space(false);
         assert_eq!(
-            "Hello my friend, how is your day going?",
             bytelevel
-                .decode(
+                .decode_chain(
                     vec![
                         "Hello", "Ġmy", "Ġfriend", ",", "Ġhow", "Ġis", "Ġyour", "Ġday", "Ġgoing",
                         "?"
@@ -251,7 +294,8 @@ mod tests {
                     .map(|s| s.into())
                     .collect::<Vec<String>>()
                 )
-                .unwrap()
+                .unwrap(),
+            vec!["Hello my friend, how is your day going?"]
         );
     }
 
@@ -303,7 +347,10 @@ mod tests {
                 .iter()
                 .flat_map(|(s, _, _)| s.split("").map(|t| t.into()))
                 .collect::<Vec<_>>();
-            assert_eq!(sample, bytelevel.decode(separated_tokens).unwrap());
+            assert_eq!(
+                sample,
+                bytelevel.decode_chain(separated_tokens).unwrap().join("")
+            );
         }
     }
 
@@ -384,6 +431,39 @@ mod tests {
     }
 
     #[test]
+    fn processor_trims_offsets_pre_tokenized() {
+        // If user uses `is_pretokenized=True` we might have
+        // offsets that might begin at the start of the string but are
+        // NOT the first token.
+        let mut encoding = Encoding::new(
+            vec![0; 5],
+            vec![],
+            vec!["Ġl".into(), "ove".into(), "Ġl".into(), "ove".into()],
+            vec![],
+            vec![(0, 1), (1, 4), (0, 1), (1, 4)],
+            vec![],
+            vec![],
+            vec![],
+            HashMap::new(),
+        );
+        process_offsets(&mut encoding, true);
+        assert_eq!(
+            encoding,
+            Encoding::new(
+                vec![0; 5],
+                vec![],
+                vec!["Ġl".into(), "ove".into(), "Ġl".into(), "ove".into()],
+                vec![],
+                vec![(0, 1), (1, 4), (0, 1), (1, 4)],
+                vec![],
+                vec![],
+                vec![],
+                HashMap::new(),
+            )
+        );
+    }
+
+    #[test]
     fn processor_trims_offsets() {
         let start = Encoding::new(
             vec![0; 5],
@@ -404,7 +484,7 @@ mod tests {
         );
         let expected = Encoding::new(
             vec![0; 5],
-            vec![],
+            vec![0; 5],
             vec![
                 "Ġ".into(),
                 "ĠĠĠĠHelloĠĠ".into(),
@@ -417,7 +497,7 @@ mod tests {
             vec![],
             vec![],
             vec![],
-            HashMap::new(),
+            HashMap::from_iter(vec![(0, 0..5)]),
         );
 
         let bytelevel = ByteLevel::default().trim_offsets(true);
@@ -426,10 +506,15 @@ mod tests {
             bytelevel.process(start.clone(), None, false).unwrap()
         );
 
-        let mut pair_expected = Encoding::new(
-            vec![0; 5],
-            vec![],
+        let pair_expected = Encoding::new(
+            vec![0; 10],
+            vec![0, 0, 0, 0, 0, 1, 1, 1, 1, 1],
             vec![
+                "Ġ".into(),
+                "ĠĠĠĠHelloĠĠ".into(),
+                "ĠĠHello".into(),
+                "HelloĠĠ".into(),
+                "ĠĠĠĠ".into(),
                 "Ġ".into(),
                 "ĠĠĠĠHelloĠĠ".into(),
                 "ĠĠHello".into(),
@@ -437,13 +522,23 @@ mod tests {
                 "ĠĠĠĠ".into(),
             ],
             vec![],
-            vec![(0, 0), (4, 9), (13, 18), (18, 23), (29, 29)],
+            vec![
+                (0, 0),
+                (4, 9),
+                (13, 18),
+                (18, 23),
+                (29, 29),
+                (0, 0),
+                (4, 9),
+                (13, 18),
+                (18, 23),
+                (29, 29),
+            ],
             vec![],
             vec![],
             vec![],
             HashMap::from_iter(vec![(0, 0..5), (1, 5..10)]),
         );
-        pair_expected.merge_with(expected, false);
         assert_eq!(
             pair_expected,
             bytelevel
@@ -457,7 +552,7 @@ mod tests {
         let byte_level = ByteLevel::default();
         assert_eq!(
             byte_level
-                .decode(vec![
+                .decode_chain(vec![
                     "Hello".into(),
                     "Ġthere".into(),
                     "Ġdear".into(),
@@ -466,7 +561,30 @@ mod tests {
                     "[PA D]".into()
                 ])
                 .unwrap(),
-            "Hello there dear friend! [PA D]"
+            vec!["Hello there dear friend! [PA D]"]
         );
+    }
+
+    #[test]
+    fn deserialization() {
+        // Before use_regex
+        let byte_level: ByteLevel = serde_json::from_str(
+            r#"{"type": "ByteLevel", "add_prefix_space": true, "trim_offsets": false}"#,
+        )
+        .unwrap();
+        assert!(byte_level.use_regex);
+
+        // Loading works, new future BC test.
+        let byte_level: ByteLevel = serde_json::from_str(
+            r#"{"type": "ByteLevel", "add_prefix_space": true, "trim_offsets": false, "use_regex": true}"#,
+        )
+        .unwrap();
+        assert!(byte_level.use_regex);
+
+        let byte_level: ByteLevel = serde_json::from_str(
+            r#"{"type": "ByteLevel", "add_prefix_space": true, "trim_offsets": false, "use_regex": false}"#,
+        )
+        .unwrap();
+        assert!(!byte_level.use_regex);
     }
 }
