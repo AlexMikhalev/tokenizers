@@ -46,7 +46,6 @@ extern "C" fn child_after_fork() {
 /// Tokenizers Module
 #[pymodule]
 pub fn tokenizers(_py: Python, m: &PyModule) -> PyResult<()> {
-    let _ = env_logger::try_init_from_env("TOKENIZERS_LOG");
 
     // Register the fork callback
     #[cfg(target_family = "unix")]
